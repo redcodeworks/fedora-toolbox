@@ -6,14 +6,14 @@ It is built `FROM ghcr.io/ublue-os/fedora-toolbox:latest` ([ublue-os/toolboxes](
 
 SDKMAN and nvm are not in the image: they install at runtime into the (shared) home.
 
-## Tags
+## Tags and branches
 
-- `latest`: the newest build.
-- `latest-<YYYYMMDD>-<short sha>`: a dated tag to pin.
+- `latest` and `latest-<YYYYMMDD>-<short sha>` (a dated tag to pin): published from `main`.
+- `testing` and `testing-<YYYYMMDD>-<short sha>`: published from the `testing` branch, for trying changes before they reach `main`.
 
-Only `main` publishes: pushes to `main`, once a week (Sunday 06:00 UTC) and manual runs on `main`. Builds on `testing` and on pull requests build and smoke-test without pushing or signing. A separate `sign` job signs every pushed digest with cosign and verifies it against the public key `cosign.pub`. The private key lives in the GitHub environment `signing` (secret `SIGNING_SECRET`), which allows `main` and, on purpose for a later change, `testing`.
+`main` is protected and changes only by a merge-commit pull request from `testing` (`just release`, or `just release true` to wait for checks and merge); `require-testing-branch` enforces the source branch. Pushes to `main`, the weekly schedule (Sunday 06:00 UTC) and manual runs on `main` publish `latest`. Pull requests build and smoke-test without pushing or signing. A separate `sign` job signs every pushed digest with cosign and verifies it against `cosign.pub`; the private key is the `SIGNING_SECRET` secret of the GitHub environment `signing` (branches `main` and `testing`). A scheduled workflow prunes old `testing` builds (newest 10 kept, never `latest*`); it only deletes when the repository variable `PRUNE_ENABLED` is `true`.
 
-Pull requests into `main` must come from `testing` (`require-testing-branch`). Assumption for Renovate: automerge of base-digest bumps only works if branch protection on `main` allows it and the required checks are `Build and push image` and `require-testing-branch`; the `require-testing-branch` check fails for Renovate's own branches, so those digest PRs are expected to need a manual merge or a ruleset exception unless Kevin arranges otherwise.
+Renovate assumption: automerge of base-digest bumps only works if branch protection on `main` lets it through. Renovate's own branches fail `require-testing-branch`, so those digest PRs need a manual merge or a ruleset exception, and the required checks are assumed to be `Build and push image` and `require-testing-branch`.
 
 ```bash
 cosign verify --key cosign.pub ghcr.io/redcodeworks/fedora-toolbox:latest
@@ -26,6 +26,12 @@ With a shared home (distrobox's default):
 ```bash
 distrobox create --name fedora-toolbox --image ghcr.io/redcodeworks/fedora-toolbox:latest
 distrobox enter fedora-toolbox
+```
+
+To try a box from the `testing` image first:
+
+```bash
+distrobox create --name fedora-toolbox-testing --image ghcr.io/redcodeworks/fedora-toolbox:testing
 ```
 
 On nox the host recipe `ujust dev-toolbox` (defined in `redcodeworks/ublue-os`) creates the box from this image. The image holds nothing user-specific, so the box works with the host's real home; SDKMAN and nvm are installed there by the recipe.
