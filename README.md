@@ -11,7 +11,7 @@ SDKMAN and nvm are not in the image: they install at runtime into the (shared) h
 - `latest`: the newest build.
 - `latest-<YYYYMMDD>-<short sha>`: a dated tag to pin.
 
-Builds run on every push to `main`, weekly, and on demand. Images are signed with cosign; the public key is `cosign.pub`.
+Builds run on every push to `main`, once a week (Sunday 06:00 UTC) and on demand; pull requests build and test without pushing or signing. Images are signed with cosign; the public key is `cosign.pub`.
 
 ```bash
 cosign verify --key cosign.pub ghcr.io/redcodeworks/fedora-toolbox:latest

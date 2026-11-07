@@ -42,7 +42,7 @@ Official Fedora packages only, plus whatever the base already configures (Terra)
 ## Branch, CI and signing rules
 
 - Work on `testing`; `main` is protected. Push `testing`, CI builds, then a pull request into `main`. Never push, open pull requests or merge unless Kevin asked.
-- CI (`build.yml`): pull requests build and smoke-test only, never push. Pushes to `main`, a weekly schedule and manual runs build, smoke-test, push `latest` and `latest-<YYYYMMDD>-<short sha>` to ghcr.io, then sign the pushed digest with cosign.
+- CI (`build.yml`): pull requests build and smoke-test only, never push or sign. Pushes to `main`, the weekly schedule (exactly one cron entry, `0 6 * * 0`, Sunday 06:00 UTC; the template's daily build was removed) and manual runs build, smoke-test, push `latest` and `latest-<YYYYMMDD>-<short sha>` to ghcr.io, then sign the pushed digest with cosign.
 - Signing follows the template flow: public key `cosign.pub` committed at the repo root, private key in the repository secret `SIGNING_SECRET` (Kevin sets it; `cosign.key` is gitignored). Old bundle format (`--new-bundle-format=false --use-signing-config=false`).
 - Base digest pinning: Renovate (`config:best-practices`) pins the `FROM` digest and opens update PRs; digest bumps of the base automerge. Actions are pinned by SHA and updated by Renovate and Dependabot.
 - Commits: on `testing`, explicit paths only (never `git add -A`), message says why, trailer `Co-Authored-By` from the session reminder, wrapped in `~/.config/scripts/with-lock.sh repo-fedora-toolbox git commit ...`.
