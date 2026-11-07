@@ -1,27 +1,23 @@
-#!/bin/bash
+#!/usr/bin/bash
+# Install packages/dev.txt into the image. Called from the Containerfile with
+# the build context mounted at /ctx. Fails loudly on any unavailable package.
+set -euo pipefail
 
-set -ouex pipefail
+list=/ctx/packages/dev.txt
 
-# Copy the contents of system_files/ of the git repo to /
-cp -avf "/ctx/system_files"/. /
+# Strip comments and blank lines; entries are "name" or "@group-id".
+mapfile -t pkgs < <(sed -e 's/[[:space:]]*#.*$//' -e '/^[[:space:]]*$/d' "$list")
 
-### Install packages
+if [ "${#pkgs[@]}" -eq 0 ]; then
+    echo "build.sh: no packages found in $list" >&2
+    exit 1
+fi
 
-# Packages can be installed from any enabled yum repo on the image.
-# RPMfusion repos are available by default in ublue main images
-# List of rpmfusion packages can be found here:
-# https://mirrors.rpmfusion.org/mirrorlist?path=free/fedora/updates/43/x86_64/repoview/index.html&protocol=https&redirect=1
+echo "Installing ${#pkgs[@]} entries from $list"
 
-# this installs a package from fedora repos
-dnf5 install -y tmux
+# dnf5 accepts @group-id as an install argument. No --skip-unavailable and
+# strict=1: a missing package or group aborts the build.
+dnf5 -y install --setopt=strict=1 "${pkgs[@]}"
 
-# Use a COPR Example:
-#
-# dnf5 -y copr enable ublue-os/staging
-# dnf5 -y install package
-# Disable COPRs so they don't end up enabled on the final image:
-# dnf5 -y copr disable ublue-os/staging
-
-#### Example for enabling a System Unit File
-
-systemctl enable podman.socket
+dnf5 clean all
+rm -rf /var/cache/libdnf5 /var/cache/dnf 2>/dev/null || true
