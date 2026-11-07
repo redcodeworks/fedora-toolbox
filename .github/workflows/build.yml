@@ -9,6 +9,7 @@ on:
   push:
     branches:
       - main
+      - testing
     paths-ignore:
       - '**/README.md'
   workflow_dispatch:
@@ -23,13 +24,18 @@ concurrency:
 
 jobs:
   build_push:
-    name: Build, smoke-test, push and sign
+    name: Build and push image
     runs-on: ubuntu-26.04
 
     permissions:
       contents: read
       packages: write
-      id-token: write
+
+    outputs:
+      publish: ${{ steps.channel.outputs.publish }}
+      image: ${{ steps.channel.outputs.image }}
+      digests: ${{ steps.push-image.outputs.digests }}
+      alias_tags: ${{ steps.channel.outputs.alias_tags }}
 
     steps:
       # These action versions are pinned by https://github.com/renovatebot/renovate
@@ -47,62 +53,124 @@ jobs:
           just check
           just lint
 
-      - name: Prepare environment
+      # Only main publishes: pushes to main, the weekly schedule (which runs on the
+      # default branch) and manual runs on main. Pull requests and testing only build
+      # and smoke-test.
+      - name: Decide whether to publish
+        id: channel
         run: |
-          # Lowercase the image uri https://github.com/macbre/push-to-ghcr/issues/12
-          echo "IMAGE_REGISTRY=${IMAGE_REGISTRY,,}" >> "${GITHUB_ENV}"
-          echo "IMAGE_NAME=${IMAGE_NAME,,}" >> "${GITHUB_ENV}"
-          echo "DATED_TAG=latest-$(date -u +%Y%m%d)-${GITHUB_SHA::7}" >> "${GITHUB_ENV}"
+          image="${IMAGE_REGISTRY,,}/${IMAGE_NAME,,}"
+          dated="latest-$(date -u +%Y%m%d)-${GITHUB_SHA::7}"
+          if [[ "${GITHUB_EVENT_NAME}" != "pull_request" && "${GITHUB_REF}" == "refs/heads/main" ]]; then
+            publish=true
+          else
+            publish=false
+          fi
+          {
+            echo "publish=${publish}"
+            echo "image=${image}"
+            echo "alias_tags=latest ${dated}"
+          } >> "${GITHUB_OUTPUT}"
+          echo "DATED_TAG=${dated}" >> "${GITHUB_ENV}"
+          echo "LOCAL_NAME=${IMAGE_NAME,,}" >> "${GITHUB_ENV}"
 
       # A failed dnf resolution (missing or renamed package) fails here, loudly.
       - name: Build image
         run: |
           podman build --pull=newer -f Containerfile \
-            -t "localhost/${IMAGE_NAME}:latest" \
-            -t "localhost/${IMAGE_NAME}:${DATED_TAG}" .
+            -t "localhost/${LOCAL_NAME}:latest" \
+            -t "localhost/${LOCAL_NAME}:${DATED_TAG}" .
 
       - name: Smoke test
-        run: just smoke "${IMAGE_NAME}" latest
+        run: just smoke "${LOCAL_NAME}" latest
 
-      # Pull requests (and any non-default branch) stop after the smoke test:
-      # nothing is published under this account without a merge to main.
       - name: Login to GitHub Container Registry
         uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
-        if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        if: steps.channel.outputs.publish == 'true'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Push To GHCR
-        if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        if: steps.channel.outputs.publish == 'true'
         id: push-image
+        env:
+          IMAGE: ${{ steps.channel.outputs.image }}
+          ALIAS_TAGS: ${{ steps.channel.outputs.alias_tags }}
         run: |
           set -euox pipefail
-          for tag in latest "${DATED_TAG}"; do
-            podman push --digestfile="${RUNNER_TEMP}/digestfile" \
-              "localhost/${IMAGE_NAME}:${tag}" "${IMAGE_REGISTRY}/${IMAGE_NAME}:${tag}"
+          : > "${RUNNER_TEMP}/digests"
+          for tag in ${ALIAS_TAGS}; do
+            podman push --digestfile="${RUNNER_TEMP}/digestfile" "localhost/${LOCAL_NAME}:${tag}" "${IMAGE}:${tag}"
+            cat "${RUNNER_TEMP}/digestfile" >> "${RUNNER_TEMP}/digests"
+            echo >> "${RUNNER_TEMP}/digests"
           done
-          echo "digest=$(< "${RUNNER_TEMP}/digestfile")" >> "$GITHUB_OUTPUT"
 
-      # The private key is the repository secret SIGNING_SECRET (cosign.key contents);
-      # the public key cosign.pub is committed. Both tags point at the same digest,
-      # so signing the digest covers both.
+          # Keep every distinct digest and sign each of them (the tags may not
+          # all end up with the same manifest digest)
+          digests=$(sort -u "${RUNNER_TEMP}/digests" | grep -v '^$' | tr '\n' ' ')
+          echo "digests=${digests}" >> "$GITHUB_OUTPUT"
+
+  # Signing runs in its own job so the private key is only reachable through the
+  # `signing` environment (limited to the main and testing branches; only main
+  # publishes today). Pull request and testing builds never publish, so they never
+  # reach this job or the key.
+  sign:
+    name: Sign and verify images
+    needs: build_push
+    if: needs.build_push.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    environment: signing
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Install Cosign
         uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
-        if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
         with:
           # be careful when upgrading major versions
           cosign-release: 'v3.1.4'
 
-      - name: Sign container image
-        id: sign-image
-        if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+      - name: Sign every pushed digest
         env:
           COSIGN_EXPERIMENTAL: false
           COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
-          DIGEST: ${{ steps.push-image.outputs.digest }}
+          IMAGE: ${{ needs.build_push.outputs.image }}
+          DIGESTS: ${{ needs.build_push.outputs.digests }}
         run: |
+          set -euo pipefail
+          [[ -n "${DIGESTS// /}" ]] || { echo "::error::No pushed digests to sign"; exit 1; }
           # https://github.com/containers/container-libs/issues/388
           # use old bundle format, so we can use newer cosign 3.X.X instead of 2.X.X
-          cosign sign -y --new-bundle-format=false --use-signing-config=false --key env://COSIGN_PRIVATE_KEY "${IMAGE_REGISTRY}/${IMAGE_NAME}@${DIGEST}"
+          for digest in ${DIGESTS}; do
+            cosign sign -y --new-bundle-format=false --use-signing-config=false --key env://COSIGN_PRIVATE_KEY "${IMAGE}@${digest}"
+          done
+
+      - name: Verify every pushed digest and tag against cosign.pub
+        env:
+          IMAGE: ${{ needs.build_push.outputs.image }}
+          DIGESTS: ${{ needs.build_push.outputs.digests }}
+          ALIAS_TAGS: ${{ needs.build_push.outputs.alias_tags }}
+        run: |
+          set -euo pipefail
+          for digest in ${DIGESTS}; do
+            cosign verify --key cosign.pub "${IMAGE}@${digest}" > /dev/null
+            echo "signed: ${digest}"
+          done
+          for tag in ${ALIAS_TAGS}; do
+            cosign verify --key cosign.pub "${IMAGE}:${tag}" > /dev/null
+            echo "signed: ${tag}"
+          done
