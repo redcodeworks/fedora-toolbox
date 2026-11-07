@@ -11,12 +11,19 @@
       "automerge": true,
       "matchUpdateTypes": ["pin", "pinDigest"]
     },
-    // This prevents the default demo image used in ublue-os/image-template
-    // from being pinned as it serves no purpose there
+    // The base image in the Containerfile FROM line is pinned by digest
+    // (config:best-practices pins docker images); new digests of the moving
+    // `latest` tag arrive as pull requests, whose CI builds without pushing.
     {
       "matchDatasources": ["docker"],
-      "matchPackageNames": ["ghcr.io/ublue-os/bazzite"],
-      "pinDigests": false
+      "matchPackageNames": ["ghcr.io/ublue-os/fedora-toolbox"],
+      "pinDigests": true
+    },
+    {
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["ghcr.io/ublue-os/fedora-toolbox"],
+      "matchUpdateTypes": ["digest"],
+      "automerge": true
     },
     {
       "enabled": false,
