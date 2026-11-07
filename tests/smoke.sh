@@ -21,7 +21,8 @@ run meson --version
 run clang --version
 run pkg-config --version
 run uv --version
-run rustup --version
+# Fedora's rustup package ships rustup-init only; it creates `rustup` on first run in the home
+run rustup-init --version
 run fish --version
 
 # .pc modules for the headline -devel packages
