@@ -11,7 +11,9 @@ SDKMAN and nvm are not in the image: they install at runtime into the (shared) h
 - `latest`: the newest build.
 - `latest-<YYYYMMDD>-<short sha>`: a dated tag to pin.
 
-Builds run on every push to `main`, once a week (Sunday 06:00 UTC) and on demand; pull requests build and test without pushing or signing. Images are signed with cosign; the public key is `cosign.pub`.
+Only `main` publishes: pushes to `main`, once a week (Sunday 06:00 UTC) and manual runs on `main`. Builds on `testing` and on pull requests build and smoke-test without pushing or signing. A separate `sign` job signs every pushed digest with cosign and verifies it against the public key `cosign.pub`. The private key lives in the GitHub environment `signing` (secret `SIGNING_SECRET`), which allows `main` and, on purpose for a later change, `testing`.
+
+Pull requests into `main` must come from `testing` (`require-testing-branch`). Assumption for Renovate: automerge of base-digest bumps only works if branch protection on `main` allows it and the required checks are `Build and push image` and `require-testing-branch`; the `require-testing-branch` check fails for Renovate's own branches, so those digest PRs are expected to need a manual merge or a ruleset exception unless Kevin arranges otherwise.
 
 ```bash
 cosign verify --key cosign.pub ghcr.io/redcodeworks/fedora-toolbox:latest
@@ -46,11 +48,9 @@ Add a package by adding one line to `packages/dev.txt` (`@group` lines work too)
 
 ```bash
 COSIGN_PASSWORD="" cosign generate-key-pair   # writes cosign.key (never commit) and cosign.pub
-gh secret set SIGNING_SECRET < cosign.key
-git add cosign.pub
 ```
 
-Then enable GitHub Actions for the repository and, after the first push, set the package `fedora-toolbox` to public in the GitHub package settings so distrobox can pull it without logging in.
+Create the GitHub environment `signing` (branches `main` and `testing`), store the contents of `cosign.key` as the environment secret `SIGNING_SECRET`, commit `cosign.pub`, and enable GitHub Actions. After the first push to `main`, set the package `fedora-toolbox` to public so distrobox can pull it without logging in.
 
 ## License
 
