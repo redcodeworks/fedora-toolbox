@@ -38,6 +38,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      packages: read  # the promote decision looks up published testing tags
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
       any: ${{ steps.plan.outputs.any }}
@@ -54,8 +55,7 @@ jobs:
         run: |
           just check
           just lint
-          tests/plan-images.sh
-          tests/new-image.sh
+          just test
 
       - name: Choose images
         id: plan
@@ -64,8 +64,19 @@ jobs:
           BEFORE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
           AFTER: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           WANT: ${{ inputs.image }}
+          REF: ${{ github.ref }}
+          PROMOTE_ENABLED: ${{ vars.PROMOTE_ENABLED }}
+          IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
         run: |
           matrix=$(.github/scripts/plan-images.sh "${EVENT}" "${BEFORE}" "${AFTER}" "${WANT}")
+          # Promote instead of rebuild? Only a merge to main of an already-tested testing image
+          # (see promote-decision.sh); needs the repository variable PROMOTE_ENABLED=true.
+          if [[ "${PROMOTE_ENABLED}" == "true" && "${EVENT}" == "push" && "${REF}" == "refs/heads/main" ]]; then
+            skopeo login ghcr.io -u "${ACTOR}" --password-stdin <<<"${GH_TOKEN}" >/dev/null
+          fi
+          matrix=$(IMAGE_REGISTRY="${IMAGE_REGISTRY,,}" .github/scripts/plan-promote.sh "${matrix}" "${EVENT}" "${REF}")
           echo "matrix=${matrix}" >> "${GITHUB_OUTPUT}"
           echo "any=$(jq '.include | length > 0' <<<"${matrix}")" >> "${GITHUB_OUTPUT}"
           echo "Plan: ${matrix}"
@@ -84,11 +95,13 @@ jobs:
     with:
       image_name: ${{ matrix.image }}
       image_dir: ${{ matrix.dir }}
+      mode: ${{ matrix.mode }}
+      source: ${{ matrix.source }}
     secrets: inherit
 
   # The branch protection requires checks named "Build and push image" and "Sign and verify images".
   # Matrix and reusable workflow jobs get names of their own, so these two jobs keep the required
-  # names. Signing happens inside build-image.yml (a matrix cannot pass outputs between jobs), so a
+  # names. Building or promoting, and signing, happen inside build-image.yml (a matrix cannot pass outputs between jobs), so a
   # failure in either stage of any image fails the `images` job and therefore both aggregates. Both
   # pass when every planned image succeeded or when the plan was empty (nothing changed, or nothing
   # was published because this was a pull request).
