@@ -35,6 +35,7 @@ PY
 )
 
 out=$(echo "${versions}" | DRY_RUN=true KEEP=2 python3 -I "${prune}" 2>&1)
+# shellcheck disable=SC2001
 echo "${out}" | sed 's/^/     /'
 if grep -q "DELETE image id=2 " <<<"${out}"; then ok "old plain testing build is deleted"; else bad "old build 2 not in the plan"; fi
 if grep -q "DELETE image id=3 " <<<"${out}"; then ok "second old testing build is deleted"; else bad "build 3 not in the plan"; fi

@@ -15,6 +15,7 @@ tmp=$(mktemp -d)
 trap 'rm -rf "${tmp}"' EXIT
 
 reg="${tmp}/registry"
+# shellcheck disable=SC2016
 printf '#!/usr/bin/env bash\ngrep -qxF "$1 $2" "%s"\n' "${reg}" > "${tmp}/fake-tag-exists"
 chmod +x "${tmp}/fake-tag-exists"
 
