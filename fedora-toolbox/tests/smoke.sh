@@ -12,6 +12,15 @@ run() {
     echo "ok: $* -> $(head -n1 <<<"$out")"
 }
 
+# build residue must not ship (checked first: running the tools below may create /root/.cache)
+for f in /var/log/dnf5.log* /var/log/dnf.log*; do
+    [ ! -e "$f" ] || fail "build log shipped in the image: $f"
+done
+for f in /root/.ssh /root/.viminfo /root/.cache /root/.local/share/wget; do
+    [ ! -e "$f" ] || fail "residue in the image: $f"
+done
+echo "ok: no dnf logs or root residue (.ssh, .viminfo, .cache, wget) in the image"
+
 run gcc --version
 run g++ --version
 run make --version
