@@ -8,7 +8,7 @@ This repo builds toolbox images only: distrobox/container development environmen
 
 The first image is `fedora-toolbox/`, published as `ghcr.io/redcodeworks/fedora-toolbox` (that path is fixed: the host recipe depends on it). It is NOT an OS image: no bootc, ostree, rpm-ostree, kernel, disk or ISO steps. The repo started from the Universal Blue `image-template`; the OS-image parts were removed.
 
-The host (nox, an immutable Fedora Silverblue-based bootc image defined in `~/Repos/ublue-os`) consumes it through the recipe `ujust dev-toolbox`, which creates a distrobox from this image with a SHARED HOME (the box uses the host user's real home). Consequences:
+The host (nox, an immutable Fedora Silverblue-based bootc image defined in `~/Repos/ublue-os`) consumes it through the recipe `ujust toolbox <name>` (the toolbox called `dev` uses this image: `ujust toolbox dev`; the octarine-os repo owns the recipe and the definition `dev.ini`), which creates a distrobox from this image with a SHARED HOME (the box uses the host user's real home). Consequences:
 - Nothing user-specific goes into the image: no `/home/<user>` content, no home paths, no dotfiles, no per-user config. `tests/smoke.sh` checks this.
 - SDKMAN and nvm are installed at runtime into the shared home by the recipe. They are not part of the image.
 - `uv` and `rustup` come from dnf (the `rustup` package; `rustup-init` or the toolchain download happens at runtime in the home).
