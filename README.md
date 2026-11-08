@@ -13,7 +13,7 @@ SDKMAN and nvm are not in the image: they install at runtime into the (shared) h
 
 `main` is protected and changes only by a merge-commit pull request from `testing` (`just release`, or `just release true` to wait for checks and merge); `require-testing-branch` enforces the source branch. Pushes to `main`, the weekly schedule (Sunday 06:00 UTC) and manual runs on `main` publish `latest`. Pull requests build and smoke-test without pushing or signing. A separate `sign` job signs every pushed digest with cosign and verifies it against `cosign.pub`; the private key is the `SIGNING_SECRET` secret of the GitHub environment `signing` (branches `main` and `testing`). A scheduled workflow prunes old `testing` builds (newest 10 kept, never `latest*`); it only deletes when the repository variable `PRUNE_ENABLED` is `true`.
 
-Renovate assumption: automerge of base-digest bumps only works if branch protection on `main` lets it through. Renovate's own branches fail `require-testing-branch`, so those digest PRs need a manual merge or a ruleset exception, and the required checks are assumed to be `Build and push image` and `require-testing-branch`.
+Renovate assumption: automerge of base-digest bumps only works if branch protection on `main` lets it through. Renovate's own branches fail `require-testing-branch`, so those digest PRs need a manual merge or a ruleset exception, and the required checks are `Build and push image`, `require-testing-branch` and `Sign and verify images`.
 
 ```bash
 cosign verify --key cosign.pub ghcr.io/redcodeworks/fedora-toolbox:latest
