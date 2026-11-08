@@ -1,8 +1,4 @@
-set dotenv-filename := "image-template.env"
-set dotenv-load
-
-export image_name := env_var("IMAGE_NAME")
-export default_tag := env_var("DEFAULT_TAG")
+default_tag := "latest"
 
 [private]
 default:
@@ -18,34 +14,42 @@ check:
 fix:
     just --unstable --fmt -f Justfile
 
-# Build the image locally with podman
+# List the images (every top-level directory with a Containerfile): directory, name, description
 [group('Image')]
-build $target_image=image_name $tag=default_tag:
-    podman build --pull=newer -f Containerfile -t localhost/{{ target_image }}:{{ tag }} .
+list:
+    @.github/scripts/images.sh list
 
-# Run tests/smoke.sh inside the locally built image
+# Build an image locally with podman (by directory or image name)
 [group('Image')]
-smoke $target_image=image_name $tag=default_tag:
-    podman run --rm -v "{{ justfile_directory() }}/tests/smoke.sh:/smoke.sh:ro" localhost/{{ target_image }}:{{ tag }} bash /smoke.sh
-
-# Lint shell scripts and the package list
-[group('Image')]
-lint:
+build image tag=default_tag:
     #!/usr/bin/env bash
     set -euo pipefail
-    bash -n build_files/build.sh tests/smoke.sh
-    if command -v shellcheck >/dev/null; then
-        shellcheck build_files/build.sh tests/smoke.sh
-    else
-        echo "shellcheck not installed, skipping"
-    fi
-    entries() { sed -e 's/[[:space:]]*#.*$//' -e '/^[[:space:]]*$/d' packages/dev.txt; }
-    # every non-comment line must be one token: a package name or @group
-    bad=$(entries | grep -nE '[[:space:]]' || true)
-    if [ -n "$bad" ]; then echo "packages/dev.txt: more than one token per line:"; echo "$bad"; exit 1; fi
-    dups=$(entries | sort | uniq -d)
-    if [ -n "$dups" ]; then echo "packages/dev.txt: duplicates:"; echo "$dups"; exit 1; fi
-    echo "lint ok"
+    read -r dir name < <(.github/scripts/images.sh resolve "{{ image }}")
+    podman build --pull=newer -f "${dir}/Containerfile" -t "localhost/${name}:{{ tag }}" "${dir}"
+
+# Run <image>/tests/smoke.sh inside the locally built image
+[group('Image')]
+smoke image tag=default_tag:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    read -r dir name < <(.github/scripts/images.sh resolve "{{ image }}")
+    podman run --rm -v "{{ justfile_directory() }}/${dir}/tests/smoke.sh:/smoke.sh:ro" "localhost/${name}:{{ tag }}" bash /smoke.sh
+
+# Lint scripts, image layouts and package lists, and enforce "toolbox images only"
+[group('Image')]
+lint:
+    @.github/scripts/lint.sh
+
+# Scaffold a new toolbox image directory from the minimal template
+[group('Image')]
+new-image name:
+    @.github/scripts/new-image.sh "{{ name }}"
+
+# Run the planning and scaffold tests
+[group('Image')]
+test:
+    tests/plan-images.sh
+    tests/new-image.sh
 
 # Open the release pull request from testing into main. Pass true to also wait for the required checks and merge it
 [group('Release')]
