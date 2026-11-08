@@ -88,8 +88,23 @@ jobs:
           DIR: ${{ inputs.image_dir }}
         run: |
           podman build --pull=newer -f "${DIR}/Containerfile" \
+            --build-arg IMAGE_VERSION="${DATED_TAG}" \
+            --build-arg IMAGE_REVISION="${GITHUB_SHA}" \
+            --build-arg IMAGE_CREATED="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             -t "localhost/${LOCAL_NAME}:${TAG}" \
             -t "localhost/${LOCAL_NAME}:${DATED_TAG}" "${DIR}"
+
+      # The labels must be this repo's own: no email address from the base's labels, and the
+      # build's version, revision and created values
+      - name: Check image labels
+        run: |
+          labels=$(podman image inspect "localhost/${LOCAL_NAME}:${TAG}" --format '{{json .Config.Labels}}')
+          echo "${labels}"
+          if grep -Eq '[[:alnum:]._+-]+@[[:alnum:]-]+\.[[:alpha:]]' <<<"${labels}"; then
+            echo "::error::An image label contains an email address (inherited from the base?)"
+            exit 1
+          fi
+          grep -q "\"org.opencontainers.image.revision\":\"${GITHUB_SHA}\"" <<<"${labels}" || { echo "::error::revision label is not this build's sha"; exit 1; }
 
       - name: Smoke test
         env:

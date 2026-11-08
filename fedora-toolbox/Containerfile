@@ -8,12 +8,28 @@ COPY packages /packages
 # Do not switch to the plain Fedora toolbox (Kevin's decision).
 FROM ghcr.io/ublue-os/fedora-toolbox:latest
 
-LABEL org.opencontainers.image.title="fedora-toolbox" \
-      org.opencontainers.image.description="Fedora development toolbox for distrobox with a shared home: build chain, -devel libraries, uv, rustup" \
-      org.opencontainers.image.source="https://github.com/redcodeworks/fedora-toolbox" \
-      org.opencontainers.image.licenses="Apache-2.0" \
-      org.opencontainers.image.base.name="ghcr.io/ublue-os/fedora-toolbox:latest"
+# Build values passed by CI (podman build --build-arg ...); no secrets
+ARG IMAGE_VERSION=dev
+ARG IMAGE_REVISION=unknown
+ARG IMAGE_CREATED=unknown
 
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/cache \
     bash /ctx/build_files/build.sh
+
+# Labels are set after the build step so changing the build args does not invalidate the build cache.
+# They are explicit so nothing from the base is republished: maintainer, authors, url, documentation,
+# version, revision and created all override the inherited values (without any email address).
+LABEL maintainer="redcodeworks/fedora-toolbox" \
+      org.opencontainers.image.authors="redcodeworks" \
+      org.opencontainers.image.vendor="redcodeworks" \
+      org.opencontainers.image.title="fedora-toolbox" \
+      org.opencontainers.image.description="Fedora development toolbox for distrobox with a shared home: build chain, -devel libraries, uv, rustup" \
+      org.opencontainers.image.url="https://github.com/redcodeworks/fedora-toolbox" \
+      org.opencontainers.image.documentation="https://github.com/redcodeworks/fedora-toolbox" \
+      org.opencontainers.image.source="https://github.com/redcodeworks/fedora-toolbox" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.base.name="ghcr.io/ublue-os/fedora-toolbox:latest" \
+      org.opencontainers.image.version="${IMAGE_VERSION}" \
+      org.opencontainers.image.revision="${IMAGE_REVISION}" \
+      org.opencontainers.image.created="${IMAGE_CREATED}"

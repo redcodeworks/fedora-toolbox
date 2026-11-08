@@ -57,7 +57,9 @@ echo "Installing ${#pkgs[@]} entries from $list"
 dnf5 -y install --setopt=strict=1 "${pkgs[@]}"
 
 dnf5 clean all
-rm -rf /var/cache/libdnf5 /var/cache/dnf 2>/dev/null || true
+# Build residue that must not ship: dnf logs (mirror URLs), root's ssh/vim/wget/cache leftovers
+rm -rf /var/cache/libdnf5 /var/cache/dnf /var/log/dnf5.log* /var/log/dnf.log* \
+    /root/.ssh /root/.viminfo /root/.cache /root/.local/share/wget /root/.wget-hsts 2>/dev/null || true
 EOF
 
 cat > "${dir}/packages/dev.txt" <<'EOF'
