@@ -21,9 +21,9 @@ if REPO_ROOT="${copy}" "${copy}/.github/scripts/lint.sh" >/dev/null 2>&1; then o
 
 if "${copy}/.github/scripts/new-image.sh" demo-box >/dev/null; then ok "new-image demo-box succeeds"; else bad "new-image failed"; fi
 for f in Containerfile build_files/build.sh packages/dev.txt tests/smoke.sh; do
-    [[ -e "${copy}/demo-box/${f}" ]] && ok "scaffold has ${f}" || bad "scaffold lacks ${f}"
+    if [[ -e "${copy}/demo-box/${f}" ]]; then ok "scaffold has ${f}"; else bad "scaffold lacks ${f}"; fi
 done
-grep -q '^FROM ghcr.io/ublue-os/fedora-toolbox:latest' "${copy}/demo-box/Containerfile" && ok "scaffold builds FROM a toolbox base" || bad "scaffold FROM line wrong"
+if grep -q '^FROM ghcr.io/ublue-os/fedora-toolbox:latest' "${copy}/demo-box/Containerfile"; then ok "scaffold builds FROM a toolbox base"; else bad "scaffold FROM line wrong"; fi
 if grep -rIiE 'bootc|ostree|kernel|iso|disk' "${copy}/demo-box" >/dev/null; then bad "scaffold mentions OS-image parts"; else ok "scaffold has no bootc/ostree/kernel/disk/ISO parts"; fi
 
 if REPO_ROOT="${copy}" "${copy}/.github/scripts/lint.sh" >/dev/null 2>&1; then ok "scaffold passes lint"; else

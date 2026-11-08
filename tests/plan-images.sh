@@ -55,7 +55,7 @@ zeros=0000000000000000000000000000000000000000
 
 # Image discovery: directory name, image.env override, non-image directory ignored
 list=$(REPO_ROOT="${repo}" "${repo}/.github/scripts/images.sh" list | cut -f1,2 | tr '\t\n' ': ')
-[[ "${list}" == "alpha:alpha beta:beta-image " ]] && ok "images: directory name by default, image.env overrides, docs/ ignored" || bad "image list: ${list}"
+if [[ "${list}" == "alpha:alpha beta:beta-image " ]]; then ok "images: directory name by default, image.env overrides, docs/ ignored"; else bad "image list: ${list}"; fi
 
 c1=$(commit_change alpha/packages/x.txt)
 names "alpha" "only alpha changed: alpha" push "${base}" "${c1}"
