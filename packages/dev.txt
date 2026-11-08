@@ -1,0 +1,166 @@
+# Packages installed into the image by build_files/build.sh (one dnf5 install).
+# One package or @group per line; blank lines and #-comments are ignored.
+# Official Fedora packages only (plus whatever the base already configures,
+# i.e. Terra). A package that cannot be installed fails the build.
+#
+# BASE NOTES (ghcr.io/ublue-os/fedora-toolbox:latest, as of 2026-11-07, unverified here):
+# - It is Fedora 44, with a moving `latest` tag only, not rebuilt on a schedule.
+# - Names below are Fedora 44 names. Fedora 45 renames libgit2-devel to
+#   libgit2_1.9-devel: change that line when the base moves.
+# - Mesa comes from Terra's terra-mesa repo. Do NOT add ffmpeg-free-devel:
+#   libGLU cannot install once Fedora's mesa is excluded in favour of Terra's.
+
+# --- Groups ---
+@c-development
+@development-tools
+
+# --- Build chain and debugging ---
+autoconf
+automake
+binutils
+bison
+byacc
+ccache
+cscope
+ctags
+diffstat
+direnv
+doxygen
+elfutils
+fastfetch
+fish
+flex
+gcc
+gcc-c++
+gdb
+gettext
+glibc-devel
+glibc-locale-source
+indent
+libffi-devel
+libtool
+ltrace
+make
+patch
+patchutils
+perf
+pinentry
+pkgconf
+pkgconf-pkg-config
+strace
+subversion
+systemtap
+util-linux-script
+valgrind
+zoxide
+cmake
+ninja-build
+meson
+gcc-gfortran
+clang
+protobuf-compiler
+protobuf-devel
+
+# --- Language and compression libraries ---
+python3-devel
+openssl-devel
+zlib-ng-compat-devel
+bzip2-devel
+xz-devel
+readline-devel
+sqlite-devel
+ncurses-devel
+libxml2-devel
+libxslt-devel
+libcurl-devel
+libuuid-devel
+libyaml-devel
+gdbm-devel
+libzstd-devel
+lz4-devel
+snappy-devel
+pcre2-devel
+libicu-devel
+
+# --- Databases, directory and auth ---
+libpq-devel
+mariadb-connector-c-devel
+openldap-devel
+cyrus-sasl-devel
+krb5-devel
+
+# --- Scientific, git ---
+# Fedora 45: libgit2_1.9-devel
+libgit2-devel
+hdf5-devel
+flexiblas-devel
+openblas-devel
+
+# --- GLib, imaging, graphics, audio ---
+glib2-devel
+cairo-devel
+cairo-gobject-devel
+gobject-introspection-devel
+libjpeg-turbo-devel
+libpng-devel
+freetype-devel
+libtiff-devel
+libwebp-devel
+lcms2-devel
+openjpeg-devel
+libva-devel
+libdrm-devel
+alsa-lib-devel
+pulseaudio-libs-devel
+pipewire-devel
+mesa-libGL-devel
+libX11-devel
+wayland-devel
+libxkbcommon-devel
+
+# --- System libraries ---
+systemd-devel
+dbus-devel
+libusb1-devel
+libselinux-devel
+pam-devel
+libcap-devel
+libseccomp-devel
+gnutls-devel
+libgcrypt-devel
+
+# --- Hardware and system tools ---
+vulkan-tools
+libva-utils
+clinfo
+setools-console
+lm_sensors
+lsscsi
+nicstat
+traceroute
+waypipe
+evtest
+xset
+xrefresh
+dbus-tools
+
+# --- Packaging and image tooling ---
+debugedit
+dwz
+appstream-compose
+flatpak-builder
+guestfs-tools
+virt-v2v
+supermin
+osbuild
+
+# --- ROCm ---
+rocminfo
+rocm-smi
+rocm-hip
+rocm-opencl
+hipcc
+
+# --- Language toolchain managers (from dnf; SDKMAN and nvm are runtime installs) ---
+uv
+rustup
