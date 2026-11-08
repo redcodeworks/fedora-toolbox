@@ -48,5 +48,10 @@ dup_names=$(printf '%s\n' "${names[@]}" | sort | uniq -d)
 [[ -z "${dup_names}" ]] || err "duplicate image names: ${dup_names}"
 [[ ${#names[@]} -gt 0 ]] || err "no image directories (a directory with a Containerfile) found"
 
+# No machine-specific paths or tooling in a public repo (patterns are split so this file does not match itself)
+# shellcheck disable=SC2088
+local_paths=$(grep -rIn --exclude-dir=.git -e '~/.con''fig' -e '/var/ho''me/' -e 'with-lo''ck.sh' . || true)
+[[ -z "${local_paths}" ]] || err "machine-specific paths found (remove or generalise):"$'\n'"${local_paths}"
+
 if (( fail )); then exit 1; fi
 echo "lint ok (images: ${names[*]})"
