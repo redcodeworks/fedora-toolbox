@@ -17,7 +17,7 @@ distrobox create --name fedora-toolbox --image ghcr.io/redcodeworks/fedora-toolb
 distrobox enter fedora-toolbox
 ```
 
-Use `:testing` instead of `:latest` to try a box from the testing build. On nox the host recipe `ujust dev-toolbox` (in the octarine-os repo) creates the box. The images hold nothing user-specific, so a box works with the host's real home; SDKMAN and nvm are installed into it at runtime.
+Use `:testing` instead of `:latest` to try a box from the testing build. On nox the host recipe `ujust toolbox dev` (defined in the octarine-os repo, which owns the recipe and its definition `dev.ini`) creates the box from this image. The images hold nothing user-specific, so a box works with the host's real home; SDKMAN and nvm are installed into it at runtime.
 
 ## Verify
 
