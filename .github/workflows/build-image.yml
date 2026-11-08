@@ -177,6 +177,15 @@ jobs:
             -t "localhost/${LOCAL_NAME}:${TAG}" \
             -t "localhost/${LOCAL_NAME}:${DATED_TAG}" "${DIR}"
 
+      # Every tag that is pushed must exist locally (testing also has testing-<short sha>)
+      - name: Tag image
+        env:
+          ALIAS_TAGS: ${{ steps.channel.outputs.alias_tags }}
+        run: |
+          for t in ${ALIAS_TAGS}; do
+            podman tag "localhost/${LOCAL_NAME}:${TAG}" "localhost/${LOCAL_NAME}:${t}"
+          done
+
       # The labels must be this repo's own: no email address from the base's labels, and the
       # build's version, revision and created values
       - name: Check image labels
