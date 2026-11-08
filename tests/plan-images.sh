@@ -110,6 +110,11 @@ case "${real}" in
     *) bad "real repo image list: ${real}" ;;
 esac
 
+case "${real}" in
+    *"fedora-gaming fedora-gaming"*) ok "real repo: fedora-gaming/ publishes as fedora-gaming" ;;
+    *) bad "real repo image list lacks fedora-gaming: ${real}" ;;
+esac
+
 echo
 echo "${pass} passed, ${failn} failed"
 (( failn == 0 ))

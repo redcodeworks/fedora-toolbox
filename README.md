@@ -7,6 +7,7 @@ This repo builds toolbox images only: [distrobox](https://distrobox.it)/containe
 | Image | Description |
 |---|---|
 | [`fedora-toolbox`](fedora-toolbox/) | Fedora development toolbox for distrobox with a shared home: build chain, `-devel` libraries, `uv`, `rustup`, `fish` (package list: [`dev.txt`](fedora-toolbox/packages/dev.txt)) |
+| [`fedora-gaming`](fedora-gaming/) | Gaming toolbox for distrobox: Steam, gamescope, MangoHud, GameMode on Fedora's Mesa (package list: [`gaming.txt`](fedora-gaming/packages/gaming.txt)) |
 
 Tags, for every image: `latest` and `latest-<YYYYMMDD>-<short sha>` (a dated tag to pin) from `main`; `testing` and `testing-<YYYYMMDD>-<short sha>` from the `testing` branch, for trying changes first.
 
