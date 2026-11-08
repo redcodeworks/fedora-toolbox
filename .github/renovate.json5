@@ -6,22 +6,27 @@
 
   "rebaseWhen": "never",
 
+  // Every image directory has its own Containerfile (and so its own FROM line)
+  "dockerfile": {
+    "managerFilePatterns": ["/(^|/)Containerfile$/"]
+  },
+
   "packageRules": [
     {
       "automerge": true,
       "matchUpdateTypes": ["pin", "pinDigest"]
     },
-    // The base image in the Containerfile FROM line is pinned by digest
-    // (config:best-practices pins docker images); new digests of the moving
-    // `latest` tag arrive as pull requests, whose CI builds without pushing.
+    // The toolbox base images in the FROM lines of every */Containerfile are pinned by digest
+    // (config:best-practices pins docker images); new digests of the moving `latest` tag arrive
+    // as pull requests, whose CI builds without pushing.
     {
       "matchDatasources": ["docker"],
-      "matchPackageNames": ["ghcr.io/ublue-os/fedora-toolbox"],
+      "matchPackageNames": ["ghcr.io/ublue-os/**"],
       "pinDigests": true
     },
     {
       "matchDatasources": ["docker"],
-      "matchPackageNames": ["ghcr.io/ublue-os/fedora-toolbox"],
+      "matchPackageNames": ["ghcr.io/ublue-os/**"],
       "matchUpdateTypes": ["digest"],
       "automerge": true
     },

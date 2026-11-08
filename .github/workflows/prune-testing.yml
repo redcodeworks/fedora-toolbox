@@ -1,10 +1,11 @@
 ---
 name: Prune testing images
 
-# GHCR has no retention policy, so old `testing` builds are removed here. Keeps the newest builds,
-# deletes older ones together with their cosign signatures, and never touches anything tagged
-# latest*. Scheduled runs only delete once the repository variable PRUNE_ENABLED is "true"; until
-# then they are dry runs. Start it by hand with dry_run on to see the plan first.
+# GHCR has no retention policy, so old `testing` builds are removed here, once per image (every
+# top-level directory with a Containerfile; names from .github/scripts/images.sh). Keeps the newest
+# builds, deletes older ones together with their cosign signatures, and never touches anything
+# tagged latest*. Scheduled runs only delete once the repository variable PRUNE_ENABLED is "true";
+# until then they are dry runs. Start it by hand with dry_run on to see the plan first.
 on:
   schedule:
     - cron: '17 4 * * 0'  # Sundays 04:17 UTC (scheduled runs come from the default branch)
@@ -23,9 +24,28 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  prune:
-    name: Prune testing images
+  plan:
+    name: List images
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.list.outputs.matrix }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: List images
+        id: list
+        run: echo "matrix=$(.github/scripts/images.sh json)" >> "${GITHUB_OUTPUT}"
+
+  prune:
+    name: Prune testing images (${{ matrix.image }})
+    needs: plan
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     permissions:
       contents: read
       packages: write
@@ -37,14 +57,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OWNER: ${{ github.repository_owner }}
+          IMAGE: ${{ matrix.image }}
           EVENT: ${{ github.event_name }}
           INPUT_DRY_RUN: ${{ inputs.dry_run }}
           INPUT_KEEP: ${{ inputs.keep }}
           PRUNE_ENABLED: ${{ vars.PRUNE_ENABLED }}
         run: |
           set -euo pipefail
-          image=$(sed -n 's/^IMAGE_NAME=//p' image-template.env | tr -d '"')
-          image="${image,,}"
+          image="${IMAGE,,}"
           kind=$(gh api "users/${OWNER}" --jq '.type')
           if [[ "${kind}" == "Organization" ]]; then scope="orgs/${OWNER}"; else scope="users/${OWNER}"; fi
           export API_BASE="${scope}/packages/container/${image}"
@@ -60,4 +80,13 @@ jobs:
           export KEEP="${INPUT_KEEP:-10}"
           echo "Package ${API_BASE}, keep ${KEEP}, dry run: ${DRY_RUN}"
 
-          gh api --paginate "${API_BASE}/versions?per_page=100" | python3 .github/scripts/prune-testing.py
+          # A package that does not exist yet (image never published) is not an error
+          if ! versions=$(gh api --paginate "${API_BASE}/versions?per_page=100" 2>&1); then
+            if grep -q "Package not found" <<<"${versions}"; then
+              echo "No package ${image} yet: nothing to prune"
+              exit 0
+            fi
+            echo "${versions}" >&2
+            exit 1
+          fi
+          python3 .github/scripts/prune-testing.py <<<"${versions}"

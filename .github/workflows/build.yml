@@ -1,184 +1,123 @@
 ---
 name: Build container image
-# Branch model: pushes to `testing` publish the `testing` image; `main` is protected and only changes
-# through a pull request from `testing`, whose merge publishes `latest` (as does the weekly schedule,
-# which runs on the default branch, and a manual run on main). Every push builds (no path filter) so
-# the required "Build and push image" check exists for the commit being promoted. Pull requests build
-# and smoke-test only.
+# Multi-image repo (toolbox images only): every top-level directory with a Containerfile is one image.
+# The plan job picks the images to build (.github/scripts/plan-images.sh, tested by
+# tests/plan-images.sh); build-image.yml builds, smoke-tests, publishes and signs one image.
+#
+# Branch model: pushes to `testing` publish the `testing*` tags; `main` is protected and only changes
+# through a pull request from `testing`, whose merge publishes `latest*` (as do the weekly schedule,
+# which runs on the default branch, and manual runs on main). Pull requests build and smoke-test
+# only. No workflow-level `paths:` filter: with required status checks a skipped workflow leaves
+# them pending forever, so the planning script does the filtering and the aggregate jobs below
+# always report.
 on:
   pull_request:
     branches:
       - main
   schedule:
-    - cron: '0 6 * * 0'  # weekly, Sunday 06:00 UTC (the only schedule)
+    - cron: '0 6 * * 0'  # weekly, Sunday 06:00 UTC (the only schedule): all images
   push:
     branches:
       - main
       - testing
   workflow_dispatch:
-
-env:
-  IMAGE_REGISTRY: "ghcr.io/${{ github.repository_owner }}"  # do not edit
-  IMAGE_NAME: fedora-toolbox
+    inputs:
+      image:
+        description: "Build only this image (directory or image name); empty builds all"
+        type: string
+        required: false
+        default: ""
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  build_push:
-    name: Build and push image
-    runs-on: ubuntu-26.04
-
+  plan:
+    name: Plan builds
+    runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write
-
     outputs:
-      publish: ${{ steps.channel.outputs.publish }}
-      image: ${{ steps.channel.outputs.image }}
-      digests: ${{ steps.push-image.outputs.digests }}
-      alias_tags: ${{ steps.channel.outputs.alias_tags }}
-
+      matrix: ${{ steps.plan.outputs.matrix }}
+      any: ${{ steps.plan.outputs.any }}
     steps:
-      # These action versions are pinned by https://github.com/renovatebot/renovate
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      - name: Maximize build space
-        uses: ublue-os/remove-unwanted-software@695eb75bc387dbcd9685a8e72d23439d8686cba6
+        with:
+          fetch-depth: 0  # the plan diffs commit ranges
 
       - name: Install just
         uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 #v4.0.0
 
-      - name: Lint
+      - name: Lint and test the planning
         run: |
           just check
           just lint
+          tests/plan-images.sh
+          tests/new-image.sh
 
-      # main publishes `latest*`, testing publishes `testing*`; pull request builds publish nothing
-      - name: Choose channel
-        id: channel
+      - name: Choose images
+        id: plan
         env:
           EVENT: ${{ github.event_name }}
-          REF: ${{ github.ref }}
+          BEFORE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          AFTER: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          WANT: ${{ inputs.image }}
         run: |
-          publish=false
-          tag=testing
-          if [[ "${EVENT}" != "pull_request" ]]; then
-            case "${REF}" in
-              refs/heads/main) publish=true; tag=latest ;;
-              refs/heads/testing) publish=true ;;
-            esac
-          fi
-          dated="${tag}-$(date -u +%Y%m%d)-${GITHUB_SHA::7}"
-          {
-            echo "publish=${publish}"
-            echo "tag=${tag}"
-            echo "image=${IMAGE_REGISTRY,,}/${IMAGE_NAME,,}"
-            echo "alias_tags=${tag} ${dated}"
-          } >> "${GITHUB_OUTPUT}"
-          echo "DATED_TAG=${dated}" >> "${GITHUB_ENV}"
-          echo "TAG=${tag}" >> "${GITHUB_ENV}"
-          echo "LOCAL_NAME=${IMAGE_NAME,,}" >> "${GITHUB_ENV}"
-          echo "Channel: tag=${tag} publish=${publish}"
+          matrix=$(.github/scripts/plan-images.sh "${EVENT}" "${BEFORE}" "${AFTER}" "${WANT}")
+          echo "matrix=${matrix}" >> "${GITHUB_OUTPUT}"
+          echo "any=$(jq '.include | length > 0' <<<"${matrix}")" >> "${GITHUB_OUTPUT}"
+          echo "Plan: ${matrix}"
 
-      # A failed dnf resolution (missing or renamed package) fails here, loudly.
-      - name: Build image
-        run: |
-          podman build --pull=newer -f Containerfile \
-            -t "localhost/${LOCAL_NAME}:${TAG}" \
-            -t "localhost/${LOCAL_NAME}:${DATED_TAG}" .
-
-      - name: Smoke test
-        run: just smoke "${LOCAL_NAME}" "${TAG}"
-
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
-        if: steps.channel.outputs.publish == 'true'
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Push To GHCR
-        if: steps.channel.outputs.publish == 'true'
-        id: push-image
-        env:
-          IMAGE: ${{ steps.channel.outputs.image }}
-          ALIAS_TAGS: ${{ steps.channel.outputs.alias_tags }}
-        run: |
-          set -euox pipefail
-          : > "${RUNNER_TEMP}/digests"
-          for tag in ${ALIAS_TAGS}; do
-            podman push --digestfile="${RUNNER_TEMP}/digestfile" "localhost/${LOCAL_NAME}:${tag}" "${IMAGE}:${tag}"
-            cat "${RUNNER_TEMP}/digestfile" >> "${RUNNER_TEMP}/digests"
-            echo >> "${RUNNER_TEMP}/digests"
-          done
-
-          # Keep every distinct digest and sign each of them (the tags may not
-          # all end up with the same manifest digest)
-          digests=$(sort -u "${RUNNER_TEMP}/digests" | grep -v '^$' | tr '\n' ' ')
-          echo "digests=${digests}" >> "$GITHUB_OUTPUT"
-
-  # Signing runs in its own job so the private key is only reachable through the
-  # `signing` environment (limited to the main and testing branches). Pull request
-  # builds never publish, so they never reach this job or the key.
-  sign:
-    name: Sign and verify images
-    needs: build_push
-    if: needs.build_push.outputs.publish == 'true'
-    runs-on: ubuntu-latest
-    environment: signing
-
+  images:
+    name: images (${{ matrix.image }})
+    needs: plan
+    if: needs.plan.outputs.any == 'true'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     permissions:
       contents: read
       packages: write
+    uses: ./.github/workflows/build-image.yml
+    with:
+      image_name: ${{ matrix.image }}
+      image_dir: ${{ matrix.dir }}
+    secrets: inherit
 
+  # The branch protection requires checks named "Build and push image" and "Sign and verify images".
+  # Matrix and reusable workflow jobs get names of their own, so these two jobs keep the required
+  # names. Signing happens inside build-image.yml (a matrix cannot pass outputs between jobs), so a
+  # failure in either stage of any image fails the `images` job and therefore both aggregates. Both
+  # pass when every planned image succeeded or when the plan was empty (nothing changed, or nothing
+  # was published because this was a pull request).
+  result:
+    name: Build and push image
+    needs: [plan, images]
+    if: always()
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Install Cosign
-        uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
-        with:
-          # be careful when upgrading major versions
-          cosign-release: 'v3.1.4'
-
-      - name: Sign every pushed digest
+      - name: Every planned image built
         env:
-          COSIGN_EXPERIMENTAL: false
-          COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
-          IMAGE: ${{ needs.build_push.outputs.image }}
-          DIGESTS: ${{ needs.build_push.outputs.digests }}
+          PLAN: ${{ needs.plan.result }}
+          IMAGES: ${{ needs.images.result }}
         run: |
-          set -euo pipefail
-          [[ -n "${DIGESTS// /}" ]] || { echo "::error::No pushed digests to sign"; exit 1; }
-          # https://github.com/containers/container-libs/issues/388
-          # use old bundle format, so we can use newer cosign 3.X.X instead of 2.X.X
-          for digest in ${DIGESTS}; do
-            cosign sign -y --new-bundle-format=false --use-signing-config=false --key env://COSIGN_PRIVATE_KEY "${IMAGE}@${digest}"
-          done
+          echo "plan: ${PLAN}, images: ${IMAGES}"
+          [[ "${PLAN}" == "success" ]] || { echo "::error::Planning failed"; exit 1; }
+          [[ "${IMAGES}" == "success" || "${IMAGES}" == "skipped" ]] || { echo "::error::An image build failed or was cancelled"; exit 1; }
 
-      - name: Verify every pushed digest and tag against cosign.pub
+  signed:
+    name: Sign and verify images
+    needs: [plan, images]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every published image signed and verified (or nothing published)
         env:
-          IMAGE: ${{ needs.build_push.outputs.image }}
-          DIGESTS: ${{ needs.build_push.outputs.digests }}
-          ALIAS_TAGS: ${{ needs.build_push.outputs.alias_tags }}
+          PLAN: ${{ needs.plan.result }}
+          IMAGES: ${{ needs.images.result }}
         run: |
-          set -euo pipefail
-          for digest in ${DIGESTS}; do
-            cosign verify --key cosign.pub "${IMAGE}@${digest}" > /dev/null
-            echo "signed: ${digest}"
-          done
-          for tag in ${ALIAS_TAGS}; do
-            cosign verify --key cosign.pub "${IMAGE}:${tag}" > /dev/null
-            echo "signed: ${tag}"
-          done
+          echo "plan: ${PLAN}, images: ${IMAGES}"
+          [[ "${PLAN}" == "success" ]] || { echo "::error::Planning failed"; exit 1; }
+          [[ "${IMAGES}" == "success" || "${IMAGES}" == "skipped" ]] || { echo "::error::An image build, signing or verification failed or was cancelled"; exit 1; }
