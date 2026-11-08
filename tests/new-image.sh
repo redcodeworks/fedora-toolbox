@@ -31,7 +31,7 @@ if REPO_ROOT="${copy}" "${copy}/.github/scripts/lint.sh" >/dev/null 2>&1; then o
 fi
 if "${copy}/.github/scripts/new-image.sh" demo-box >/dev/null 2>&1; then bad "scaffolding an existing name should fail"; else ok "refuses an existing name"; fi
 if "${copy}/.github/scripts/new-image.sh" "Bad Name" >/dev/null 2>&1; then bad "bad name accepted"; else ok "refuses an invalid name"; fi
-if [[ "$(REPO_ROOT="${copy}" "${copy}/.github/scripts/images.sh" list | cut -f2 | tr '\n' ' ')" == "demo-box fedora-toolbox " ]]; then ok "image name equals directory name"; else bad "image list wrong"; fi
+if [[ "$(REPO_ROOT="${copy}" "${copy}/.github/scripts/images.sh" list | cut -f2 | tr '\n' ' ')" == "demo-box fedora-gaming fedora-toolbox " ]]; then ok "image name equals directory name"; else bad "image list wrong"; fi
 
 # An OS-image part in a toolbox directory must fail lint
 echo 'RUN bootc container lint' >> "${copy}/demo-box/Containerfile"
