@@ -40,6 +40,7 @@ Then edit `<name>/packages/dev.txt` and `<name>/tests/smoke.sh`. `just list` sho
 ## Contributing
 
 `main` is protected: work on `testing` and open a pull request; CI is the test. Design notes are in [`CLAUDE.md`](CLAUDE.md).
+A newer push to `testing` cancels the older build of that branch; a cancelled build can leave the `testing` tags unsigned until the next build finishes (`main` and the weekly schedule are never cancelled).
 
 ## License
 
