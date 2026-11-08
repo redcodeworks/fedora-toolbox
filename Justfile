@@ -45,10 +45,12 @@ lint:
 new-image name:
     @.github/scripts/new-image.sh "{{ name }}"
 
-# Run the planning and scaffold tests
+# Run the planning, promotion, prune and scaffold tests
 [group('Image')]
 test:
     tests/plan-images.sh
+    tests/promote-decision.sh
+    tests/prune-testing.sh
     tests/new-image.sh
 
 # Open the release pull request from testing into main. Pass true to also wait for the required checks and merge it
