@@ -32,4 +32,29 @@ echo "ok: uv, rocminfo, rocm-smi"
 run dna-stack list
 run dna-stack check
 
+# pinned versions are defined and exported (DBR 18 LTS reference)
+# shellcheck source=/dev/null
+. /usr/share/dna-toolbox/versions.env
+[ "${DNA_PYTHON_VERSION}" = "3.12" ] || fail "DNA_PYTHON_VERSION default is ${DNA_PYTHON_VERSION}, expected 3.12"
+echo "ok: versions.env (DBR ${DNA_DBR_VERSION}, Spark ${DNA_SPARK_VERSION}, Python ${DNA_PYTHON_VERSION}, Java ${DNA_JAVA_VERSION})"
+
+# conda-forge only: no defaults channel anywhere
+channels=$(conda config --show channels 2>&1) || fail "conda config failed: ${channels}"
+if grep -qi defaults <<<"${channels}"; then fail "conda lists the defaults channel: ${channels}"; fi
+grep -q conda-forge <<<"${channels}" || fail "conda-forge is not a configured channel: ${channels}"
+echo "ok: conda channels are conda-forge only"
+
+run mamba --version
+run psql --version
+run jupyter-lab --version
+command -v kcat >/dev/null || fail "kcat missing"
+for t in dna-setup dna-lab dna-doctor; do
+    command -v "${t}" >/dev/null || fail "${t} missing"
+    bash -n "$(command -v "${t}")" || fail "${t} has a syntax error"
+done
+dna-doctor >/dev/null || fail "dna-doctor failed"
+echo "ok: kcat, dna-setup, dna-lab, dna-doctor"
+# the pinned DuckDB download is optional: checked only when it was installed
+if command -v duckdb >/dev/null; then run duckdb --version; else echo "note: duckdb not installed (optional download)"; fi
+
 echo "SMOKE PASS"

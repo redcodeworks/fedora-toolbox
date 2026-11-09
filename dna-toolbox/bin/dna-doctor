@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# dna-doctor: report whether this box is ready for GPU, Spark, Jupyter and the lakehouse clients.
+# Prints ok / warn / FAIL lines and changes nothing. Exit status 1 only with --strict and a FAIL.
+# shellcheck disable=SC2015  # ok, warn and fail always return 0, so A && B || C is an if-else here
+set -uo pipefail
+# shellcheck source=/dev/null
+source "${DNA_VERSIONS_FILE:-/usr/share/dna-toolbox/versions.env}"
+DATA=${DNA_DATA_DIR:-${XDG_DATA_HOME:-${HOME}/.local/share}/dna-toolbox}
+VENV=${DNA_VENV:-${DATA}/venv-py${DNA_PYTHON_VERSION}}
+strict=0; [[ "${1:-}" == "--strict" ]] && strict=1
+bad=0
+ok() { printf 'ok    %s\n' "$*"; }
+warn() { printf 'warn  %s\n' "$*"; }
+fail() { printf 'FAIL  %s\n' "$*"; bad=1; }
+
+echo "== pins: DBR ${DNA_DBR_VERSION}, Spark ${DNA_SPARK_VERSION}, Scala ${DNA_SCALA_VERSION}, Java ${DNA_JAVA_VERSION}, Python ${DNA_PYTHON_VERSION}, Hadoop ${DNA_HADOOP_VERSION}, Delta ${DNA_DELTA_VERSION}"
+
+echo "== GPU (ROCm)"
+for d in /dev/kfd /dev/dri; do
+    [[ -e "${d}" ]] && ok "${d} is visible" || warn "${d} is not visible: the box was created without the GPU devices"
+done
+if command -v rocminfo >/dev/null; then
+    if rocminfo 2>/dev/null | grep -q 'gfx1201'; then ok "rocminfo lists gfx1201 (RX 9070 XT)"
+    elif rocminfo 2>/dev/null | grep -qE 'gfx[0-9a-f]+'; then warn "rocminfo lists a GPU, but not gfx1201: $(rocminfo 2>/dev/null | grep -oE 'gfx[0-9a-f]+' | sort -u | tr '\n' ' ')"
+    else warn "rocminfo shows no GPU agent (no access to /dev/kfd, or no supported GPU)"; fi
+else fail "rocminfo is missing"; fi
+
+echo "== Python (uv-managed ${DNA_PYTHON_VERSION})"
+command -v uv >/dev/null && ok "uv $(uv --version | cut -d' ' -f2)" || fail "uv is missing"
+if [[ -x "${VENV}/bin/python" ]]; then
+    ok "venv ${VENV}: $("${VENV}/bin/python" --version)"
+    "${VENV}/bin/python" -c 'import databricks.connect' 2>/dev/null && ok "databricks-connect importable" || warn "databricks-connect not importable in the venv"
+    if "${VENV}/bin/python" -c 'import torch' 2>/dev/null; then
+        # UNVERIFIED territory: the ROCm wheel on gfx1201 is reported here, not assumed
+        "${VENV}/bin/python" -c 'import torch,sys; sys.exit(0 if torch.cuda.is_available() else 1)' \
+            && ok "torch sees the GPU (HIP $("${VENV}/bin/python" -c 'import torch; print(torch.version.hip)'))" \
+            || warn "torch is installed but does not see the GPU (unverified for gfx1201)"
+    else warn "torch is not installed in the venv (dna-setup --torch, needs DNA_TORCH_INDEX)"; fi
+else warn "no venv yet: run dna-setup"; fi
+
+echo "== JVM, Spark, Hadoop"
+if command -v java >/dev/null; then
+    java -version 2>&1 | grep -q "\"${DNA_JAVA_VERSION}\." && ok "java ${DNA_JAVA_VERSION}" || warn "java is not ${DNA_JAVA_VERSION}: $(java -version 2>&1 | head -n1)"
+else warn "java is not installed (optional package java-${DNA_JAVA_VERSION}-openjdk)"; fi
+sdk_dir=${SDKMAN_DIR:-${HOME}/.sdkman}/candidates
+[[ -d "${sdk_dir}/spark/${DNA_SPARK_VERSION}" ]] && ok "SDKMAN spark ${DNA_SPARK_VERSION}" || warn "SDKMAN spark ${DNA_SPARK_VERSION} not installed (dna-setup --sdkman)"
+[[ -d "${sdk_dir}/hadoop/${DNA_HADOOP_VERSION}" ]] && ok "SDKMAN hadoop ${DNA_HADOOP_VERSION}" || warn "SDKMAN hadoop ${DNA_HADOOP_VERSION} not installed (dna-setup --sdkman)"
+
+echo "== conda and tools"
+if command -v conda >/dev/null; then
+    conda config --show channels 2>/dev/null | grep -q defaults && fail "conda lists the defaults channel" || ok "conda channels: conda-forge only"
+else fail "conda is missing"; fi
+for t in psql kcat duckdb ollama; do
+    command -v "${t}" >/dev/null && ok "${t}" || warn "${t} not found"
+done
+
+echo "== models and stack"
+ok "models: OLLAMA_MODELS=${OLLAMA_MODELS:-unset}, HF_HOME=${HF_HOME:-unset}"
+off=${DNA_PORT_OFFSET:-10000}
+for p in 5432 8333 8181 8080; do
+    port=$((p + off))
+    if (echo >/dev/tcp/127.0.0.1/"${port}") 2>/dev/null; then ok "stack port ${port} answers"; else warn "nothing on stack port ${port} (dna-stack up)"; fi
+done
+(( strict && bad )) && exit 1
+exit 0

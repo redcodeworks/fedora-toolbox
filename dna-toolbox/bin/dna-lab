@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# dna-lab: start JupyterLab from the dna-setup venv on 127.0.0.1 (port $DNA_LAB_PORT, default 8888),
+# with the welcome notebooks copied into $DNA_NOTEBOOKS (default ~/dna-notebooks) when missing.
+set -euo pipefail
+# shellcheck source=/dev/null
+source "${DNA_VERSIONS_FILE:-/usr/share/dna-toolbox/versions.env}"
+SHARE=${DNA_SHARE:-/usr/share/dna-toolbox}
+DATA=${DNA_DATA_DIR:-${XDG_DATA_HOME:-${HOME}/.local/share}/dna-toolbox}
+VENV=${DNA_VENV:-${DATA}/venv-py${DNA_PYTHON_VERSION}}
+NOTEBOOKS=${DNA_NOTEBOOKS:-${HOME}/dna-notebooks}
+PORT=${DNA_LAB_PORT:-8888}
+
+[[ -x "${VENV}/bin/jupyter-lab" ]] || { echo "dna-lab: no environment yet; run dna-setup first" >&2; exit 1; }
+mkdir -p "${NOTEBOOKS}"
+for nb in "${SHARE}"/notebooks/*.ipynb; do
+    [[ -e "${NOTEBOOKS}/$(basename "${nb}")" ]] || cp "${nb}" "${NOTEBOOKS}/"
+done
+exec "${VENV}/bin/jupyter-lab" --ip=127.0.0.1 --port="${PORT}" --notebook-dir="${NOTEBOOKS}" "$@"

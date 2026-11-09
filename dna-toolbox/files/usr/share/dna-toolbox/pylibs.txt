@@ -1,0 +1,9 @@
+# Python libraries dna-setup installs into the uv-managed venv (one requirement per line).
+# JupyterLab, ipykernel and databricks-connect are installed separately by dna-setup.
+polars
+pandas
+pyarrow
+pyiceberg
+duckdb
+matplotlib
+psycopg[binary]

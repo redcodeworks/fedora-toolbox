@@ -25,6 +25,30 @@ for p in "${opt[@]}"; do
     dnf5 -y install "$p" || echo "build.sh: WARNING optional package '$p' not installed" >&2
 done
 
+# Pinned versions, config files (conda-forge-only condarc, profile script, notebooks), the dna-*
+# commands. Files only; nothing runs at build time.
+# shellcheck source=/dev/null
+source /ctx/versions.env
+cp -r /ctx/files/. /
+install -d /usr/share/dna-toolbox
+install -m 0644 /ctx/versions.env /ctx/downloads.lock /usr/share/dna-toolbox/
+install -m 0755 /ctx/bin_dna/* /usr/bin/
+
+# Pinned vendor downloads (optional tier: failures only warn). Format: name|version|url|sha256|file
+while IFS='|' read -r name version url sha file; do
+    [[ -z "${name}" || "${name}" == \#* ]] && continue
+    tmp=$(mktemp -d)
+    if curl -fsSL --retry 3 -o "${tmp}/a.tgz" "${url}" \
+        && echo "${sha}  ${tmp}/a.tgz" | sha256sum -c - >/dev/null \
+        && tar -xzf "${tmp}/a.tgz" -C "${tmp}" "${file}"; then
+        install -m 0755 "${tmp}/${file}" "/usr/local/bin/${file}"
+        echo "installed ${name} ${version}"
+    else
+        echo "build.sh: WARNING ${name} ${version} not installed (download or checksum failed)" >&2
+    fi
+    rm -rf "${tmp}"
+done < /ctx/downloads.lock
+
 # The server stack tooling (Quadlet and compose files, the dna-stack command): files only, nothing
 # runs at build time
 install -d /usr/share/dna-stack
