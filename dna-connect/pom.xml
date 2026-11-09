@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Only used to resolve the Iceberg sink plugin directory (see the Containerfile): `mvn dependency:copy-dependencies`
+     copies these artifacts and their runtime dependencies into /plugins/iceberg-sink. Nothing here is built. -->
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>lakehouse</groupId>
+  <artifactId>iceberg-sink-deps</artifactId>
+  <version>1</version>
+  <packaging>pom</packaging>
+
+  <properties>
+    <iceberg.version>1.11.0</iceberg.version>
+    <hadoop.version>3.4.1</hadoop.version>
+  </properties>
+
+  <dependencies>
+    <!-- The sink connector itself (Apache publishes only this thin jar) -->
+    <dependency>
+      <groupId>org.apache.iceberg</groupId>
+      <artifactId>iceberg-kafka-connect</artifactId>
+      <version>${iceberg.version}</version>
+    </dependency>
+    <!-- DebeziumTransform: flattens before/after so upserts and deletes work -->
+    <dependency>
+      <groupId>org.apache.iceberg</groupId>
+      <artifactId>iceberg-kafka-connect-transforms</artifactId>
+      <version>${iceberg.version}</version>
+    </dependency>
+    <!-- Without iceberg-parquet the first record dies with NoClassDefFoundError ParquetValueWriter -->
+    <dependency>
+      <groupId>org.apache.iceberg</groupId>
+      <artifactId>iceberg-parquet</artifactId>
+      <version>${iceberg.version}</version>
+    </dependency>
+    <!-- Needed because Iceberg 1.11's FormatModelRegistry registers all formats at init -->
+    <dependency>
+      <groupId>org.apache.iceberg</groupId>
+      <artifactId>iceberg-orc</artifactId>
+      <version>${iceberg.version}</version>
+    </dependency>
+    <!-- One class of Hadoop Configuration is needed by Parquet's writer; api and runtime are the two
+         halves of one shaded pair, so both are listed -->
+    <dependency>
+      <groupId>org.apache.hadoop</groupId>
+      <artifactId>hadoop-client-api</artifactId>
+      <version>${hadoop.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.hadoop</groupId>
+      <artifactId>hadoop-client-runtime</artifactId>
+      <version>${hadoop.version}</version>
+    </dependency>
+    <!-- S3FileIO classes (iceberg-aws) and the relocated AWS SDK (iceberg-aws-bundle): both are needed -->
+    <dependency>
+      <groupId>org.apache.iceberg</groupId>
+      <artifactId>iceberg-aws</artifactId>
+      <version>${iceberg.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.iceberg</groupId>
+      <artifactId>iceberg-aws-bundle</artifactId>
+      <version>${iceberg.version}</version>
+    </dependency>
+  </dependencies>
+</project>

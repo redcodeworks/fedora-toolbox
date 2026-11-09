@@ -1,0 +1,4 @@
+# Drivers added to Superset's own virtual environment (/app/.venv). Pinned versions to be set after the first
+# CI build resolves them (UNVERIFIED which versions fit Superset 6.1.0); replace the ranges with exact pins then.
+psycopg2-binary>=2.9,<3
+trino[sqlalchemy]>=0.330
