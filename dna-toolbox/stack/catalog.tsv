@@ -1,6 +1,6 @@
 # name|tier|depends|summary   (tier: slice = shipped, later = planned reference-stack item, ai = proposed AI-side item)
 postgres|slice||PostgreSQL 17 (catalog and application databases)
-seaweedfs|slice||SeaweedFS with S3 API (object storage for Iceberg data)
+seaweedfs|slice||SeaweedFS 4.36 with S3 API (object storage for Iceberg data)
 lakekeeper|slice|postgres,seaweedfs|Lakekeeper Iceberg REST catalog (needs Postgres)
 trino|slice|lakekeeper|Trino 483 SQL engine with an Iceberg catalog on Lakekeeper
 valkey|later||Valkey 9 (Redis-compatible cache)

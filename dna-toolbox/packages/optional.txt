@@ -9,6 +9,9 @@ ollama-vulkan
 python3-ollama
 llama-cpp
 
+# F44 FINDING (CI build 2026-11-09): on the Fedora 44 base, `ollama-rocm`, `ollama-vulkan` and
+# `java-21-openjdk` were "No match" (they exist on Fedora 45 per the hub's check), so only `ollama`,
+# `python3-ollama` and `llama-cpp` install until the base moves; Java 21 comes from SDKMAN (dna-setup --sdkman).
 # --- Java for Spark and Hadoop: keep the version in step with DNA_JAVA_VERSION (versions.env) ---
 java-21-openjdk
 

@@ -174,10 +174,16 @@ render_compose() { # out-dir, services...
     } > "${out}/.env"
 }
 
-render_support() { # trino catalog (both modes)
+render_support() { # trino catalog (both modes); holds the S3 keys, so mode 600 (placeholders when none exist yet)
     if [[ " $* " == *" trino "* ]]; then
-        mkdir -p "${STATE}/trino/catalog"
-        cp "${ROOT}/templates/trino-iceberg.properties" "${STATE}/trino/catalog/iceberg.properties"
+        local ak=EXAMPLE_KEY sk=EXAMPLE_SECRET
+        if [[ -f "${STATE}/env/s3.env" ]]; then
+            ak=$(sed -n 's/^S3_ACCESS_KEY=//p' "${STATE}/env/s3.env"); sk=$(sed -n 's/^S3_SECRET_KEY=//p' "${STATE}/env/s3.env")
+        fi
+        ( umask 077; mkdir -p "${STATE}/trino/catalog"
+          sed -e "s|@WAREHOUSE@|${DNA_WAREHOUSE}|" -e "s|@REGION@|${DNA_S3_REGION}|" \
+              -e "s|@S3_ACCESS_KEY@|${ak}|" -e "s|@S3_SECRET_KEY@|${sk}|" \
+              "${ROOT}/templates/trino-iceberg.properties" > "${STATE}/trino/catalog/iceberg.properties" )
     fi
 }
 
@@ -185,10 +191,31 @@ render_support() { # trino catalog (both modes)
 
 rand() { head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n'; }
 secret_exists() { host podman secret inspect "$1" >/dev/null 2>&1; }
-secret_create() { printf '%s' "$2" | host podman secret create --label dna-stack=1 "$1" - >/dev/null; }
+# The host wrapper's handling of piped stdin is unverified, so by default the value goes through a 0600
+# file in the state dir (shared home, readable by the host at the same path) that is deleted at once.
+# DNA_SECRET_STDIN=1 pipes it instead.
+secret_create() {
+    if [[ "${DNA_SECRET_STDIN:-0}" == "1" ]]; then
+        printf '%s' "$2" | host podman secret create --label dna-stack=1 "$1" - >/dev/null
+        return
+    fi
+    [[ "${STATE}" == "${HOME}"/* ]] || die "the state dir must be under the shared home so the host can read the secret file (set DNA_STATE or DNA_SECRET_STDIN=1)"
+    local f
+    ( umask 077; mkdir -p "${STATE}/tmp"; f=$(mktemp "${STATE}/tmp/secret.XXXXXX"); printf '%s' "$2" > "${f}"
+      trap 'rm -f "${f}"' EXIT
+      host podman secret create --label dna-stack=1 "$1" "${f}" >/dev/null )
+}
 
 ensure_secrets() { # services...
     local pw="" sel=" $* "
+    if [[ "${sel}" == *" seaweedfs "* && ! -f "${STATE}/env/s3.env" ]]; then
+        local ak sk
+        ak=$(rand); sk=$(rand)
+        ( umask 077; mkdir -p "${STATE}/env"
+          printf 'S3_ACCESS_KEY=%s\nS3_SECRET_KEY=%s\n' "${ak}" "${sk}" > "${STATE}/env/s3.env"
+          printf '{"identities":[{"name":"dna","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Admin","Read","Write","List","Tagging"]}]}\n' "${ak}" "${sk}" > "${STATE}/env/seaweedfs-s3.json" )
+        say "  created S3 credentials in ${STATE}/env (mode 600)"
+    fi
     if [[ "${MODE}" == "quadlet" ]]; then
         if [[ "${sel}" == *" postgres "* ]] && ! secret_exists dna-postgres-password; then
             pw=$(rand); secret_create dna-postgres-password "${pw}"
@@ -198,7 +225,7 @@ ensure_secrets() { # services...
             secret_exists dna-lakekeeper-key || { secret_create dna-lakekeeper-key "$(rand)"; say "  created secret dna-lakekeeper-key"; }
             if ! secret_exists dna-lakekeeper-pgurl; then
                 [[ -n "${pw}" ]] || die "secret dna-lakekeeper-pgurl is missing and the Postgres password cannot be read back; run 'dna-stack remove --yes --secrets' and set up again"
-                secret_create dna-lakekeeper-pgurl "postgresql://dna:${pw}@dna-postgres:5432/lakekeeper"
+                secret_create dna-lakekeeper-pgurl "postgres://dna:${pw}@dna-postgres:5432/lakekeeper"
                 say "  created secret dna-lakekeeper-pgurl"
             fi
         fi
@@ -213,8 +240,8 @@ ensure_secrets() { # services...
             [[ -f "${STATE}/env/postgres.env" ]] || die "lakekeeper needs ${STATE}/env/postgres.env (select postgres too)"
             pw=$(sed -n 's/^POSTGRES_PASSWORD=//p' "${STATE}/env/postgres.env")
             {
-                printf 'LAKEKEEPER__PG_DATABASE_URL_READ=postgresql://dna:%s@dna-postgres:5432/lakekeeper\n' "${pw}"
-                printf 'LAKEKEEPER__PG_DATABASE_URL_WRITE=postgresql://dna:%s@dna-postgres:5432/lakekeeper\n' "${pw}"
+                printf 'LAKEKEEPER__PG_DATABASE_URL_READ=postgres://dna:%s@dna-postgres:5432/lakekeeper\n' "${pw}"
+                printf 'LAKEKEEPER__PG_DATABASE_URL_WRITE=postgres://dna:%s@dna-postgres:5432/lakekeeper\n' "${pw}"
                 printf 'LAKEKEEPER__PG_ENCRYPTION_KEY=%s\n' "$(rand)"
             } > "${STATE}/env/lakekeeper.env"
             say "  created ${STATE}/env/lakekeeper.env (mode 600)"
@@ -235,11 +262,15 @@ dna-stack: lakehouse and AI server containers on the host, driven from the toolb
   list                         the checklist: what exists, what is selected
   setup [--only a,b] [--yes]   pick services (all off by default), print the plan, write the files
   status                       state of the selected services
-  up | down [service...]       start or stop (default: everything selected)
+  up | down [service...] [--yes]
+                               start or stop; with no names a checklist (all off), `up` adds missing dependencies,
+                               `down` warns about services that depend on the ones you stop
   logs [service] [--follow]    recent logs
+  bootstrap                    after `up`: bootstrap Lakekeeper, create the S3 bucket and the first warehouse
   lock [--root]                resolve the image digests into images.lock (state dir, or the repo copy with --root)
-  remove [--yes] [--volumes] [--secrets]
-                               dry run by default; removes only what this tool generated; volumes need a typed yes
+  remove [service...] [--yes] [--volumes] [--secrets]
+                               checklist or names; dry run without --yes or a terminal; removes only what this tool
+                               generated; volumes need --volumes and a typed yes
   check                        static checks of the shipped files (no runtime needed)
   render --out DIR --mode quadlet|compose [--all]
                                write the files to DIR only (no host access; used by the tests)
@@ -336,11 +367,116 @@ need_selection() {
     [[ -n "$(selected)" ]] || die "nothing set up yet: run dna-stack setup"
 }
 
+# The dependency map from the catalog, as text for the warnings
+dep_map() {
+    local n
+    for n in $(catalog_names); do
+        shipped "${n}" || continue
+        [[ -n "$(deps_of "${n}")" ]] && printf '    %s needs %s\n' "${n}" "$(deps_of "${n}" | sed 's/ /, /g')"
+    done
+}
+dep_warning() {
+    say "WARNING: some services depend on others:"
+    dep_map
+    say "  up adds missing dependencies for you; down and remove never cascade silently."
+}
+
+# Services of $2... that need $1 (directly or through others)
+dependents_in() {
+    local x=$1 s
+    shift
+    for s in "$@"; do
+        [[ "${s}" == "${x}" ]] && continue
+        closure "${s}" | grep -qx "${x}" && echo "${s}"
+    done
+}
+
+is_running() {
+    if [[ "${MODE}" == "quadlet" ]]; then host systemctl --user is-active --quiet "dna-$1.service" 2>/dev/null
+    else [[ "$(host "${RT}" inspect -f '{{.State.Running}}' "dna-$1" 2>/dev/null || true)" == "true" ]]; fi
+}
+
+# Checklist of $1 (header) over the remaining names, all OFF; prints the chosen names. Same picker as setup:
+# gum when present, else one y/N question each; without a terminal nothing is chosen.
+pick_from() {
+    local header=$1 n ans
+    shift
+    [[ -t 0 ]] || return 0
+    if command -v gum >/dev/null; then
+        gum choose --no-limit --header "${header}" "$@" || true
+    else
+        for n in "$@"; do
+            read -r -p "${n} ($(summary_of "${n}"))? [y/N] " ans </dev/tty || ans=n
+            [[ "${ans}" =~ ^[Yy] ]] && echo "${n}"
+        done
+    fi
+    return 0
+}
+
+# Shared front half of up, down and remove. Sets CHOSEN (array) and YES. Candidates are given by the caller.
+parse_names() { # args: the command line after the verb; fills NAMES and YES and EXTRA (other options)
+    NAMES=() YES=0 EXTRA=()
+    local a
+    for a in "$@"; do
+        case "${a}" in
+            --yes|-y) YES=1 ;;
+            --volumes|--secrets) EXTRA+=("${a}") ;;
+            -*) die "unknown option ${a}" ;;
+            *) known "${a}" || die "unknown service '${a}' (see: dna-stack list)"; NAMES+=("${a}") ;;
+        esac
+    done
+}
+
+# down and remove: a selected service that a non-selected one depends on must be named and confirmed.
+# Prints the second warning; returns 0 to go on, 1 to stop (dry run or declined). May extend CHOSEN.
+confirm_dependents() { # verb, candidates (the running or generated services)...
+    local verb=$1 d x
+    shift
+    local -a cand=("$@") deps=()
+    for x in "${CHOSEN[@]}"; do
+        for d in $(dependents_in "${x}" "${cand[@]}"); do
+            printf '%s\n' "${CHOSEN[@]}" | grep -qx "${d}" || { printf '%s\n' "${deps[@]:-}" | grep -qx "${d}" || deps+=("${d}"); }
+        done
+    done
+    [[ "${#deps[@]}" -gt 0 ]] || return 0
+    say "WARNING: ${deps[*]} depend(s) on ${CHOSEN[*]} and would stay in place without it (not selected)."
+    if [[ -t 0 ]]; then
+        local ans
+        read -r -p "Add ${deps[*]} to the ${verb} list as well? [y/N] " ans
+        if [[ "${ans}" =~ ^[Yy] ]]; then CHOSEN+=("${deps[@]}"); return 0; fi
+        read -r -p "${verb} ${CHOSEN[*]} anyway, leaving ${deps[*]} as they are? [y/N] " ans
+        [[ "${ans}" =~ ^[Yy] ]] && return 0
+        say "nothing done"; return 1
+    fi
+    (( YES )) && return 0
+    say "dry run: pass --yes to ${verb} ${CHOSEN[*]} anyway, or name the dependents too"
+    return 1
+}
+
 cmd_up() {
+    parse_names "$@"
     detect; need_selection
-    local -a svcs; mapfile -t svcs < <(if (( $# )); then closure "$@"; else selected; fi)
+    local -a conf=() idle=() want=()
+    local s
+    mapfile -t conf < <(selected)
+    for s in "${conf[@]}"; do is_running "${s}" || idle+=("${s}"); done
+    if [[ "${#NAMES[@]}" -gt 0 ]]; then
+        want=("${NAMES[@]}")
+    elif (( YES )); then
+        want=("${idle[@]:-}")
+    else
+        [[ "${#idle[@]}" -gt 0 ]] || { say "everything configured is already running"; return 0; }
+        dep_warning
+        mapfile -t want < <(pick_from "Start which services? (nothing is selected by default)" "${idle[@]}")
+        if [[ "${#want[@]}" -eq 0 ]]; then say "nothing chosen (dry run: name services, or pass --yes to start everything configured)"; return 0; fi
+    fi
+    local -a svcs=()
+    mapfile -t svcs < <(closure "${want[@]}" | sed '/^$/d')
+    local extra=()
+    for s in "${svcs[@]}"; do printf '%s\n' "${want[@]}" | grep -qx "${s}" || extra+=("${s}"); done
+    [[ "${#extra[@]}" -eq 0 ]] || say "also starting the dependencies: ${extra[*]}"
+    for s in "${svcs[@]}"; do printf '%s\n' "${conf[@]}" | grep -qx "${s}" || die "${s} is not set up (dna-stack setup --only ${s})"; done
     if [[ "${MODE}" == "quadlet" ]]; then
-        local s
         for s in "${svcs[@]}"; do
             say "start dna-${s}.service"; host systemctl --user start "dna-${s}.service"
         done
@@ -348,22 +484,44 @@ cmd_up() {
         local -a f; mapfile -t f < <(compose_files "${svcs[@]}")
         compose_run "${f[@]}" up -d
     fi
-    undo "dna-stack down"
+    undo "dna-stack down ${svcs[*]}"
 }
 
 cmd_down() {
+    parse_names "$@"
     detect; need_selection
-    local -a svcs; mapfile -t svcs < <(if (( $# )); then printf '%s\n' "$@"; else selected; fi)
+    local -a run=() CHOSEN=()
+    local s
+    for s in $(selected); do is_running "${s}" && run+=("${s}"); done
+    [[ "${#run[@]}" -gt 0 ]] || { say "nothing is running"; return 0; }
+    if [[ "${#NAMES[@]}" -gt 0 ]]; then CHOSEN=("${NAMES[@]}")
+    elif (( YES )); then CHOSEN=("${run[@]}")
+    else
+        dep_warning
+        mapfile -t CHOSEN < <(pick_from "Stop which services? (nothing is selected by default)" "${run[@]}")
+        [[ "${#CHOSEN[@]}" -gt 0 ]] || { say "nothing chosen (dry run: name services, or pass --yes to stop everything running)"; return 0; }
+    fi
+    if [[ "${#NAMES[@]}" -gt 0 || "${#CHOSEN[@]}" -lt "${#run[@]}" ]]; then
+        confirm_dependents stop "${run[@]}" || return 0
+    fi
+    stop_services "${CHOSEN[@]}"
+    undo "dna-stack up ${CHOSEN[*]}"
+}
+
+# Stop in reverse start order
+stop_services() {
+    local -a order=()
+    mapfile -t order < <(closure "$@" | sed '/^$/d')
+    local -a only=() ; local s i
+    for s in "${order[@]}"; do printf '%s\n' "$@" | grep -qx "${s}" && only+=("${s}"); done
     if [[ "${MODE}" == "quadlet" ]]; then
-        local i
-        for (( i=${#svcs[@]}-1; i>=0; i-- )); do
-            say "stop dna-${svcs[i]}.service"; host systemctl --user stop "dna-${svcs[i]}.service" || true
+        for (( i=${#only[@]}-1; i>=0; i-- )); do
+            say "stop dna-${only[i]}.service"; host systemctl --user stop "dna-${only[i]}.service" || true
         done
     else
-        local -a f; mapfile -t f < <(compose_files "${svcs[@]}")
-        compose_run "${f[@]}" stop
+        local -a f; mapfile -t f < <(compose_files "${only[@]}")
+        compose_run "${f[@]}" stop "${only[@]/#/dna-}"
     fi
-    undo "dna-stack up"
 }
 
 cmd_status() {
@@ -392,6 +550,41 @@ cmd_logs() {
     fi
 }
 
+# One-time setup of a running stack: Lakekeeper bootstrap, the S3 bucket and the first warehouse.
+# Talks to the published localhost ports (distrobox and Fedora toolbox share the host network).
+# UNVERIFIED against a live Lakekeeper: the credential field names differ between its docs and its
+# repo example, so both spellings are tried.
+cmd_bootstrap() {
+    local lk s3 i
+    lk=$(host_port lakekeeper); s3=$(host_port seaweedfs)
+    [[ -f "${STATE}/env/s3.env" ]] || die "no S3 credentials: set up seaweedfs and lakekeeper first"
+    local ak sk
+    ak=$(sed -n 's/^S3_ACCESS_KEY=//p' "${STATE}/env/s3.env"); sk=$(sed -n 's/^S3_SECRET_KEY=//p' "${STATE}/env/s3.env")
+    for i in $(seq 1 30); do
+        curl -fsS "http://127.0.0.1:${lk}/health" >/dev/null 2>&1 && break
+        [[ "${i}" -lt 30 ]] || die "Lakekeeper does not answer on 127.0.0.1:${lk} (dna-stack up first)"
+        sleep 2
+    done
+    say "bootstrap Lakekeeper"
+    curl -fsS -X POST "http://127.0.0.1:${lk}/management/v1/bootstrap" -H 'Content-Type: application/json' \
+        -d '{"accept-terms-of-use": true}' >/dev/null || say "  (already bootstrapped, or refused: continuing)"
+    say "create bucket ${DNA_BUCKET}"
+    curl -fsS -X PUT --aws-sigv4 "aws:amz:${DNA_S3_REGION}:s3" --user "${ak}:${sk}" \
+        "http://127.0.0.1:${s3}/${DNA_BUCKET}" >/dev/null || say "  (bucket exists, or the request failed: continuing)"
+    say "create warehouse ${DNA_WAREHOUSE}"
+    local names ok=0
+    for names in "access-key-id secret-access-key" "aws-access-key-id aws-secret-access-key"; do
+        read -r kn sn <<<"${names}"
+        if printf '{"warehouse-name":"%s","project-id":"00000000-0000-0000-0000-000000000000","storage-profile":{"type":"s3","bucket":"%s","key-prefix":"warehouse","endpoint":"http://dna-seaweedfs:8333","region":"%s","path-style-access":true,"flavor":"s3-compat","sts-enabled":false},"storage-credential":{"type":"s3","credential-type":"access-key","%s":"%s","%s":"%s"}}' \
+            "${DNA_WAREHOUSE}" "${DNA_BUCKET}" "${DNA_S3_REGION}" "${kn}" "${ak}" "${sn}" "${sk}" \
+            | curl -fsS -X POST "http://127.0.0.1:${lk}/management/v1/warehouse" -H 'Content-Type: application/json' --data-binary @- >/dev/null; then
+            ok=1; break
+        fi
+    done
+    if (( ok )); then say "warehouse created"; else say "warehouse not created (it may exist already); check Lakekeeper's logs"; fi
+    undo "dna-stack remove --yes --volumes"
+}
+
 cmd_lock() {
     local target
     target=${STATE}/images.lock
@@ -413,45 +606,83 @@ cmd_lock() {
 
 is_ours() { [[ -f "$1" ]] && head -n1 "$1" | grep -q "^${HEADER}"; }
 
+svc_files() { # generated files of one service
+    local s=$1 f
+    if [[ "${MODE}" == "quadlet" ]]; then
+        for f in $(quadlet_files "${s}"); do echo "${QUADLET_DIR}/${f}"; done
+    else
+        echo "${STATE}/compose/${s}.yml"
+        [[ "${s}" == "trino" ]] && echo "${STATE}/trino/catalog/iceberg.properties"
+    fi
+}
+svc_volumes() { case "$1" in postgres) echo dna-postgres-data ;; seaweedfs) echo dna-seaweedfs-data ;; esac; }
+svc_secrets() { case "$1" in postgres) echo dna-postgres-password ;; lakekeeper) echo "dna-lakekeeper-key dna-lakekeeper-pgurl" ;; esac; }
+
 cmd_remove() {
-    local yes=0 vols=0 secs=0
-    while (( $# )); do
-        case "$1" in --yes|-y) yes=1 ;; --volumes) vols=1 ;; --secrets) secs=1 ;; *) die "unknown option $1" ;; esac
-        shift
-    done
+    parse_names "$@"
     detect
+    local vols=0 secs=0 e
+    for e in "${EXTRA[@]:-}"; do [[ "${e}" == "--volumes" ]] && vols=1; [[ "${e}" == "--secrets" ]] && secs=1; done
+    local -a made=() CHOSEN=()
+    local s
+    for s in $(selected); do made+=("${s}"); done
+    [[ "${#made[@]}" -gt 0 ]] || { say "nothing generated; nothing to remove"; return 0; }
+    if [[ "${#NAMES[@]}" -gt 0 ]]; then CHOSEN=("${NAMES[@]}")
+    elif (( YES )); then CHOSEN=("${made[@]}")
+    elif [[ -t 0 ]]; then
+        dep_warning
+        mapfile -t CHOSEN < <(pick_from "Remove which services? (nothing is selected by default)" "${made[@]}")
+        [[ "${#CHOSEN[@]}" -gt 0 ]] || { say "nothing chosen"; return 0; }
+    else
+        dep_warning
+        say "Generated: ${made[*]}"
+        say "dry run: name services, or pass --yes to remove everything generated"
+        return 0
+    fi
+    for s in "${CHOSEN[@]}"; do printf '%s\n' "${made[@]}" | grep -qx "${s}" || die "${s} is not set up"; done
+    if [[ "${#NAMES[@]}" -gt 0 || "${#CHOSEN[@]}" -lt "${#made[@]}" ]]; then
+        confirm_dependents remove "${made[@]}" || return 0
+    fi
+    say "Would stop and delete (generated files only):"
     local -a files=()
     local f
-    if [[ "${MODE}" == "quadlet" ]]; then
-        for f in "${QUADLET_DIR}"/dna*.container "${QUADLET_DIR}"/dna*.volume "${QUADLET_DIR}"/dna.network; do
-            is_ours "${f}" && files+=("${f}")
-        done
-    fi
-    for f in "${STATE}/compose"/*.yml "${STATE}/compose/.env" "${STATE}/trino/catalog/iceberg.properties"; do
-        is_ours "${f}" && files+=("${f}")
-    done
-    say "Would stop the selected services and delete:"
+    for s in "${CHOSEN[@]}"; do for f in $(svc_files "${s}"); do is_ours "${f}" && files+=("${f}"); done; done
     printf '  %s\n' "${files[@]:-}"
-    (( ! secs )) || say "  and the podman secrets dna-postgres-password, dna-lakekeeper-key, dna-lakekeeper-pgurl, plus ${STATE}/env"
-    (( ! vols )) || say "  and the volumes dna-postgres-data, dna-seaweedfs-data (ALL DATA)"
-    if (( ! yes )); then say "dry run: pass --yes to do it"; return 0; fi
-    if (( vols )); then
-        read -r -p "Type yes to delete the data volumes: " ans </dev/tty || ans=no
-        [[ "${ans}" == "yes" ]] || { vols=0; say "volumes kept"; }
+    (( ! secs )) || say "  and the secrets of: ${CHOSEN[*]}"
+    (( ! vols )) || say "  and the data volumes of: ${CHOSEN[*]} (ALL DATA)"
+    if (( ! YES )) && [[ ! -t 0 ]]; then say "dry run: pass --yes to do it"; return 0; fi
+    if (( ! YES )); then
+        local ans
+        read -r -p "Remove these? [y/N] " ans
+        [[ "${ans}" =~ ^[Yy] ]] || { say "nothing done"; return 0; }
     fi
-    if [[ -n "$(selected)" ]]; then cmd_down || true; fi
+    if (( vols )); then
+        local ans=no
+        if [[ -t 0 ]]; then read -r -p "Type yes to delete the data volumes: " ans || ans=no; fi
+        [[ "${ans}" == "yes" ]] || { vols=0; say "volumes kept (they need a typed yes in a terminal)"; }
+    fi
+    local -a live=()
+    for s in "${CHOSEN[@]}"; do is_running "${s}" && live+=("${s}"); done
+    [[ "${#live[@]}" -eq 0 ]] || stop_services "${live[@]}"
     for f in "${files[@]:-}"; do [[ -n "${f}" ]] && rm -f "${f}"; done
-    [[ "${MODE}" == "quadlet" ]] && host systemctl --user daemon-reload || true
-    if (( secs )); then
-        for f in dna-postgres-password dna-lakekeeper-key dna-lakekeeper-pgurl; do host podman secret rm "${f}" >/dev/null 2>&1 || true; done
-        rm -rf "${STATE}/env"
+    for s in "${CHOSEN[@]}"; do
+        if (( secs )); then
+            for f in $(svc_secrets "${s}"); do host podman secret rm "${f}" >/dev/null 2>&1 || true; done
+        fi
+        if (( vols )); then
+            for f in $(svc_volumes "${s}"); do host "${RT}" volume rm "${f}" >/dev/null 2>&1 || true; done
+        fi
+    done
+    local -a left=()
+    for s in "${made[@]}"; do printf '%s\n' "${CHOSEN[@]}" | grep -qx "${s}" || left+=("${s}"); done
+    if [[ "${#left[@]}" -gt 0 ]]; then printf '%s\n' "${left[@]}" > "${STATE}/selected"
+    else
+        rm -f "${STATE}/selected" "${STATE}/compose/.env" "${QUADLET_DIR}/dna.network"
+        host "${RT}" network rm "${NETWORK}" >/dev/null 2>&1 || true
+        (( ! secs )) || rm -rf "${STATE}/env"
     fi
-    if (( vols )); then
-        for f in dna-postgres-data dna-seaweedfs-data; do host "${RT}" volume rm "${f}" >/dev/null 2>&1 || true; done
-    fi
-    host "${RT}" network rm "${NETWORK}" >/dev/null 2>&1 || true
-    rm -f "${STATE}/selected"
-    say "removed. Set up again with: dna-stack setup"
+    [[ "${MODE}" != "quadlet" ]] || host systemctl --user daemon-reload
+    say "removed: ${CHOSEN[*]}. Set up again with: dna-stack setup"
 }
 
 cmd_render() {
@@ -493,7 +724,7 @@ cmd_check() { # static checks, no host access and no container runtime needed
     for f in "${tmp}"/q/* "${tmp}"/c/*.yml "${tmp}"/c/.env; do
         [[ -f "${f}" ]] || continue
         head -n1 "${f}" | grep -q "^${HEADER}" || fail "${f##*/}: missing the generated header"
-        if grep -v '^Secret=' "${f}" | grep -iE '(PASSWORD|SECRET|TOKEN|KEY)[A-Z_]*[=:] *[^ $@]' >/dev/null; then
+        if grep -v -e '^Secret=' -e 'SECRET_BACKEND' "${f}" | grep -iE '(PASSWORD|SECRET|TOKEN|KEY)[A-Z_]*[=:] *[^ $@]' >/dev/null; then
             fail "${f##*/}: looks like a secret value in a generated file"
         fi
     done
@@ -528,10 +759,11 @@ main() {
         status) cmd_status ;;
         logs) cmd_logs "$@" ;;
         lock) cmd_lock "$@" ;;
+        bootstrap) cmd_bootstrap ;;
         remove) cmd_remove "$@" ;;
         render) cmd_render "$@" ;;
         check) cmd_check ;;
         *) cmd_help; exit 1 ;;
     esac
 }
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then main "$@"; fi

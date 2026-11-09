@@ -79,6 +79,10 @@ if (( sdkman )); then
         set +u
         # shellcheck source=/dev/null
         source "${init}"
+        # Java: Fedora 44 lacks java-21-openjdk, so take DBR's flavor (Zulu) from SDKMAN. UNVERIFIED identifier
+        # parsing: the first `<version>.x-zulu` entry of `sdk list java`
+        jid=$(sdk list java 2>/dev/null | grep -oE "${DNA_JAVA_VERSION}\.[0-9.]+-zulu" | head -n1 || true)
+        if [[ -n "${jid}" ]]; then sdk install java "${jid}" || warn "SDKMAN java ${jid} did not install"; else warn "no Zulu ${DNA_JAVA_VERSION} found in sdk list java"; fi
         sdk install spark "${DNA_SPARK_VERSION}" || warn "SDKMAN spark ${DNA_SPARK_VERSION} not available (see: sdk list spark)"
         sdk install hadoop "${DNA_HADOOP_VERSION}" || warn "SDKMAN hadoop ${DNA_HADOOP_VERSION} not available (see: sdk list hadoop)"
         set -u
