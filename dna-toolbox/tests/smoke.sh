@@ -28,4 +28,8 @@ command -v rocminfo >/dev/null || fail "rocminfo missing"
 command -v rocm-smi >/dev/null || fail "rocm-smi missing"
 echo "ok: uv, rocminfo, rocm-smi"
 
+# the server stack tooling is installed and its shipped files pass the static checks
+run dna-stack list
+run dna-stack check
+
 echo "SMOKE PASS"

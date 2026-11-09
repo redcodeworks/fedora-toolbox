@@ -2,6 +2,7 @@
 FROM scratch AS ctx
 COPY build_files /build_files
 COPY packages /packages
+COPY stack /stack
 
 # Base: Universal Blue's toolbox (github.com/ublue-os/toolboxes), Fedora 44, moving `latest` tag
 # only. Renovate pins the digest.

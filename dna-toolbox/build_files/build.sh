@@ -25,6 +25,13 @@ for p in "${opt[@]}"; do
     dnf5 -y install "$p" || echo "build.sh: WARNING optional package '$p' not installed" >&2
 done
 
+# The server stack tooling (Quadlet and compose files, the dna-stack command): files only, nothing
+# runs at build time
+install -d /usr/share/dna-stack
+cp -r /ctx/stack/. /usr/share/dna-stack/
+chmod 0755 /usr/share/dna-stack/bin/dna-stack
+ln -sf /usr/share/dna-stack/bin/dna-stack /usr/bin/dna-stack
+
 dnf5 clean all
 # Build residue that must not ship: dnf logs (mirror URLs), root's ssh/vim/wget/cache leftovers
 rm -rf /var/cache/libdnf5 /var/cache/dnf /var/log/dnf5.log* /var/log/dnf.log* \

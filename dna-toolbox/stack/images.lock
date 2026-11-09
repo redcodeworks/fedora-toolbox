@@ -1,0 +1,9 @@
+# Pinned images for the stack: name|image reference|sha256 digest
+# Tags below are the versions Kevin runs on nox today (reference list from the hub, not verified from
+# this repo). The digest column is filled by `dna-stack lock` (needs a container runtime and network):
+# an empty digest means "tag only, not yet locked". When a digest is present it is what gets pulled.
+# Full registry names, so podman needs no short-name resolution.
+postgres|docker.io/library/postgres:17-alpine|
+seaweedfs|docker.io/chrislusf/seaweedfs:3.24|
+lakekeeper|quay.io/lakekeeper/catalog:v0.13.1|
+trino|docker.io/trinodb/trino:483|

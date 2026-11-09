@@ -52,6 +52,7 @@ test:
     tests/promote-decision.sh
     tests/prune-testing.sh
     tests/new-image.sh
+    tests/dna-stack.sh
 
 # Open the release pull request from testing into main. Pass true to also wait for the required checks and merge it
 [group('Release')]

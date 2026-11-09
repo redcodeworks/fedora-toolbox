@@ -13,7 +13,7 @@ fail=0
 err() { echo "lint: $*" >&2; fail=1; }
 
 shopt -s nullglob
-scripts=(.github/scripts/*.sh tests/*.sh ./*/build_files/*.sh ./*/tests/*.sh)
+scripts=(.github/scripts/*.sh tests/*.sh ./*/build_files/*.sh ./*/tests/*.sh ./*/stack/bin/*)
 bash -n "${scripts[@]}" || fail=1
 if command -v shellcheck >/dev/null; then
     shellcheck -x -P SCRIPTDIR "${scripts[@]}" || fail=1

@@ -1,0 +1,13 @@
+# name|tier|depends|summary   (tier: slice = shipped, later = planned reference-stack item, ai = proposed AI-side item)
+postgres|slice||PostgreSQL 17 (catalog and application databases)
+seaweedfs|slice||SeaweedFS with S3 API (object storage for Iceberg data)
+lakekeeper|slice|postgres,seaweedfs|Lakekeeper Iceberg REST catalog (needs Postgres)
+trino|slice|lakekeeper|Trino 483 SQL engine with an Iceberg catalog on Lakekeeper
+valkey|later||Valkey 9 (Redis-compatible cache)
+kafka|later||Apache Kafka 4.3.1, KRaft mode
+connect|later|kafka|Kafka Connect with Debezium and the Iceberg sink (needs a Containerfile from the source repo)
+airflow|later|postgres|Apache Airflow 3.3 (needs a Containerfile from the source repo)
+superset|later|postgres|Apache Superset (needs a Containerfile from the source repo)
+qdrant|ai||Qdrant vector database
+mlflow|ai|postgres|MLflow tracking server
+openwebui|ai||Open WebUI for ollama

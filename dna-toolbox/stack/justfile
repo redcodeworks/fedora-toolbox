@@ -1,0 +1,29 @@
+# Recipes for the dna stack, run from inside the toolbox: just -f /usr/share/dna-stack/justfile <recipe>
+# (the toolbox also ships the `dna-stack` command; these are the same thing with short names)
+set quiet
+
+default:
+    dna-stack list
+
+# Pick services (all off by default); --only a,b and --yes skip the questions
+setup *args:
+    dna-stack setup {{ args }}
+
+status:
+    dna-stack status
+
+up *services:
+    dna-stack up {{ services }}
+
+down *services:
+    dna-stack down {{ services }}
+
+logs *args:
+    dna-stack logs {{ args }}
+
+# Dry run unless --yes; --volumes also asks to delete the data
+remove *args:
+    dna-stack remove {{ args }}
+
+lock *args:
+    dna-stack lock {{ args }}
