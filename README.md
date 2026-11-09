@@ -1,46 +1,46 @@
 # fedora-toolbox
 
-This repo builds toolbox images only: [distrobox](https://distrobox.it)/container development environments. Each top-level directory with a `Containerfile` is one image; the image name is the directory name, published to `ghcr.io/redcodeworks/<name>`. OS and bootc images live in their own repos.
+Ready-made development and gaming containers for [distrobox](https://distrobox.it), published as signed images on GitHub's container registry. Each one is a normal Fedora box with the tools already installed, so you skip the setup and keep your home folder.
 
-## Images
-
-| Image | Description |
+| Image | What it is |
 |---|---|
-| [`fedora-toolbox`](fedora-toolbox/) | Fedora development toolbox for distrobox with a shared home: build chain, `-devel` libraries, `uv`, `rustup`, `fish` (package list: [`dev.txt`](fedora-toolbox/packages/dev.txt)) |
-| [`fedora-gaming`](fedora-gaming/) | Gaming toolbox for distrobox: Steam, gamescope, MangoHud, GameMode on Fedora's Mesa (package list: [`gaming.txt`](fedora-gaming/packages/gaming.txt)) |
+| [`fedora-toolbox`](fedora-toolbox/) | Development box: compilers and build tools, common `-devel` libraries, `uv`, `rustup`, `fish` (list: [`dev.txt`](fedora-toolbox/packages/dev.txt)) |
+| [`fedora-gaming`](fedora-gaming/) | Gaming box: Steam, gamescope, MangoHud, GameMode on Fedora's Mesa (list: [`gaming.txt`](fedora-gaming/packages/gaming.txt)) |
 
-Tags, for every image: `latest` and `latest-<YYYYMMDD>-<short sha>` (a dated tag to pin) from `main`; `testing` and `testing-<YYYYMMDD>-<short sha>` from the `testing` branch, for trying changes first.
+## Requirements
 
-## Use
+- [distrobox](https://distrobox.it) with podman (or docker)
+- Optional: [`cosign`](https://github.com/sigstore/cosign) to verify the images, [`just`](https://github.com/casey/just) to work on the repo
+
+## Install and usage
 
 ```bash
 distrobox create --name fedora-toolbox --image ghcr.io/redcodeworks/fedora-toolbox:latest
 distrobox enter fedora-toolbox
 ```
 
-Use `:testing` instead of `:latest` to try a box from the testing build. On nox the host recipe `ujust toolbox dev` (defined in the octarine-os repo, which owns the recipe and its definition `dev.ini`) creates the box from this image. The images hold nothing user-specific, so a box works with the host's real home; SDKMAN and nvm are installed into it at runtime.
+Use the `fedora-gaming` image the same way. `:latest` is the current release; `latest-<YYYYMMDD>-<short sha>` pins a date; `:testing` is the preview. The images contain nothing personal, so a box works with your real home. Language managers such as SDKMAN and nvm are not included: install them inside the box.
 
-## Verify
-
-Images are signed with cosign:
+To check a download:
 
 ```bash
 cosign verify --key cosign.pub ghcr.io/redcodeworks/fedora-toolbox:latest
 ```
 
-## Add an image
-
-```bash
-just new-image <name>      # scaffolds <name>/ (toolbox base, package list, build.sh, smoke test)
-just build <name> && just smoke <name>
-```
-
-Then edit `<name>/packages/dev.txt` and `<name>/tests/smoke.sh`. `just list` shows the images, `just lint` checks the repo.
-
 ## Contributing
 
-`main` is protected: work on `testing` and open a pull request; CI is the test. Design notes are in [`CLAUDE.md`](CLAUDE.md).
+Issues and pull requests are welcome, though I only maintain this for my own use. Work on the `testing` branch and open a pull request into `main`. `just list` shows the images, `just lint` checks the repo, and `just new-image <name>` starts a new one.
 
 ## License
 
-Apache-2.0, see `LICENSE`.
+Apache-2.0, see [`LICENSE`](LICENSE).
+
+## Credits
+
+- [Universal Blue](https://universal-blue.org) and its [toolboxes](https://github.com/ublue-os/toolboxes) provide the base image, and the [image-template](https://github.com/ublue-os/image-template) this repo started from.
+- [Fedora](https://fedoraproject.org) for the packages, [distrobox](https://distrobox.it) and [podman](https://podman.io) for the containers, [cosign](https://github.com/sigstore/cosign) for signing.
+- Written with [Claude](https://claude.com/claude-code) (Anthropic's coding assistant).
+
+## About this repo
+
+This is a personal project for my own machine, assisted by Claude, so please excuse the slop. I have only tested it on my own setup and will not actively maintain it beyond my own needs. If you find something valuable here, I encourage you to fork it and make it yours.

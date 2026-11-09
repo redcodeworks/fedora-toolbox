@@ -33,10 +33,11 @@ on:
 env:
   IMAGE_REGISTRY: "ghcr.io/${{ github.repository_owner }}"  # do not edit
 
-# One run per image and ref; only pull request runs cancel their predecessors
+# One run per image and ref; a newer run cancels its predecessor on every ref except main and never on
+# the weekly schedule (main publishes and promotes, the schedule refreshes the images)
 concurrency:
   group: build-image-${{ inputs.image_name }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.event_name != 'schedule' }}
 
 jobs:
   # Promote: retag the already-tested testing image to latest instead of rebuilding it. The signature
