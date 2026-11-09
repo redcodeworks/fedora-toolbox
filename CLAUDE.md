@@ -79,3 +79,7 @@ Official Fedora packages only, plus whatever the base already configures (Terra)
 ## Deliberately not in the images
 
 SDKMAN, nvm, Node, Java (runtime installs into the shared home); anything in `/home`; Terra or other repos beyond the base's; `ffmpeg-free-devel`; any OS-image tooling (bootc, rpm-ostree, kernel, bootloader, ISO/disk builders).
+
+## README policy (set by Kevin, 2026-11-08)
+
+`README.md` is user-facing, for people who only need the concise what, why and basic how-to-use. No notes to yourself and no technical implementation details in it (CI, signing mechanics, tag and cancellation behavior, package-tier internals, layout): those belong in this file. Essential sections: Requirements, Install and usage, Contributing, License, Credits, then a closing "About this repo" disclaimer (personal project assisted by Claude, excuse the slop, only tested on Kevin's own setup, not maintained beyond his own needs, forks encouraged). American English. Keep the README image table in step with the image directories.
