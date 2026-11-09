@@ -118,6 +118,19 @@ fi
 out=$(REPO_ROOT="${repo}" TAG_EXISTS_CMD="${tmp}/fake-tag-exists" PROMOTE_ENABLED=true "${repo}/.github/scripts/plan-promote.sh" '{"include":[]}' push refs/heads/main)
 if [[ "${out}" == '{"include":[]}' ]]; then ok "plan-promote: empty plan stays empty"; else bad "empty plan: ${out}"; fi
 
+# 9. EXTRA_PATHS: a change in the shared directory after the tested image blocks the promotion of the
+# image that uses it, while a change in an unrelated image's directory does not
+newrepo; mkdir -p "${repo}/shared"; echo x > "${repo}/shared/list.txt"
+printf 'EXTRA_PATHS=shared\n' > "${repo}/alpha/image.env"; printf 'FROM scratch\n' > "${repo}/shared/Containerfile"
+gt add -A; gt commit -q -m "shared dir and alpha image.env"; git -C "${repo}" branch -f testing
+gt checkout -q testing; t1=$(change alpha/a.txt); published alpha "${t1}"; change shared/list.txt >/dev/null; merge_testing
+decide "build shared/list.txt changed after the tested image" "shared dir listed in EXTRA_PATHS changed after the tested image: build" push refs/heads/main alpha
+newrepo; mkdir -p "${repo}/shared"; echo x > "${repo}/shared/list.txt"
+printf 'EXTRA_PATHS=shared\n' > "${repo}/alpha/image.env"; printf 'FROM scratch\n' > "${repo}/shared/Containerfile"
+gt add -A; gt commit -q -m "shared dir and alpha image.env"; git -C "${repo}" branch -f testing
+gt checkout -q testing; t1=$(change shared/list.txt); published alpha "${t1}"; change beta/b.txt >/dev/null; merge_testing
+decide "promote ${t1:0:7}" "only an unrelated image changed after the tested image: promote" push refs/heads/main alpha
+
 echo
 echo "${pass} passed, ${failn} failed"
 (( failn == 0 ))

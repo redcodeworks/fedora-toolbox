@@ -1,13 +1,22 @@
-# Packages installed into the image by build_files/build.sh (one dnf5 install).
-# One package or @group per line; blank lines and #-comments are ignored.
-# Official Fedora packages only (plus whatever the base already configures,
-# i.e. Terra). A package that cannot be installed fails the build.
+# Developer package list, shared by the dev-toolbox image (fedora-toolbox/) and by every image that
+# pulls the published ghcr.io/redcodeworks/dev-packages image (for example octarine-os-dx).
+# Installed by install.sh (same directory): one strict `dnf5 install`, a package that cannot be
+# installed fails the build.
 #
-# BASE NOTES (ghcr.io/ublue-os/fedora-toolbox:latest, as of 2026-11-07, unverified here):
-# - It is Fedora 44, with a moving `latest` tag only, not rebuilt on a schedule.
-# - Names below are Fedora 44 names. Fedora 45 renames libgit2-devel to
-#   libgit2_1.9-devel: change that line when the base moves.
-# - Mesa comes from Terra's terra-mesa repo. Do NOT add ffmpeg-free-devel:
+# SYNTAX: one entry per line; blank lines and #-comments are ignored.
+#   name         a package
+#   @group-id    a package group (dnf5 accepts @id as an install argument)
+#   a|b|c        ALTERNATIVES for one package whose name differs between Fedora releases: the first
+#                alternative that exists in the enabled repositories is installed (newest name
+#                first); if none exists the build fails.
+# Consumers can drop entries with EXCLUDE="name1 name2" (see README.md).
+#
+# Official Fedora packages only (plus whatever the dev-toolbox base already configures, i.e. Terra).
+#
+# BASE NOTES (dev-toolbox: ghcr.io/ublue-os/fedora-toolbox:latest, as of 2026-11-07, unverified here):
+# - It is Fedora 44, with a moving `latest` tag only, not rebuilt on a schedule. octarine-os-dx is
+#   Fedora 45. One list serves both: names that differ between the releases use alternatives.
+# - Mesa comes from Terra's terra-mesa repo in dev-toolbox. Do NOT add ffmpeg-free-devel:
 #   libGLU cannot install once Fedora's mesa is excluded in favour of Terra's.
 
 # --- Groups ---
@@ -90,8 +99,8 @@ cyrus-sasl-devel
 krb5-devel
 
 # --- Scientific, git ---
-# Fedora 45: libgit2_1.9-devel
-libgit2-devel
+# Fedora 45 renamed libgit2-devel to libgit2_1.9-devel
+libgit2_1.9-devel|libgit2-devel
 hdf5-devel
 flexiblas-devel
 openblas-devel

@@ -25,7 +25,7 @@ build image tag=default_tag:
     #!/usr/bin/env bash
     set -euo pipefail
     read -r dir name < <(.github/scripts/images.sh resolve "{{ image }}")
-    podman build --pull=newer -f "${dir}/Containerfile" -t "localhost/${name}:{{ tag }}" "${dir}"
+    podman build --pull=newer -f "${dir}/Containerfile" -t "localhost/${name}:{{ tag }}" "$(.github/scripts/images.sh context "${dir}")"
 
 # Run <image>/tests/smoke.sh inside the locally built image
 [group('Image')]
@@ -53,6 +53,8 @@ test:
     tests/prune-testing.sh
     tests/new-image.sh
     tests/dna-stack.sh
+    tests/dev-packages-install.sh
+    tests/dev-packages-workflow.sh
 
 # Build the dna-stack contexts (Connect, Airflow, Superset) with podman to catch a broken Containerfile; needs network, takes minutes
 [group('Image')]
