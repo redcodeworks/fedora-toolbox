@@ -1,0 +1,22 @@
+# Kafka Connect for the dna stack: Debezium's Connect image plus the Apache Iceberg sink.
+# Built on the user's host by `dna-stack build` (nothing publishes this image). Needs network: Maven Central
+# and the base-image registries.
+# Apache publishes only a thin iceberg-kafka-connect jar, so the plugin directory is assembled by Maven
+# (dependency:copy-dependencies) in a throwaway stage. includeScope=runtime keeps Kafka's own connect-api and
+# kafka-clients out of the plugin (they would cause a ClassCastException next to the worker's copies). One
+# directory per connector under /kafka/connect, so each gets its own classloader.
+# Base images are pinned by digest (manifest lists, resolved 2026-11-09, not signed upstream); the readable tag
+# is in the comment above each FROM.
+
+# docker.io/library/maven:3.9-eclipse-temurin-17
+FROM docker.io/library/maven:3.9-eclipse-temurin-17@sha256:1a352420f7aba21f5ad08df31bab55f74c013fb491f1ae8ab1dd7ff9ed698584 AS deps
+ARG ICEBERG_VERSION=1.11.0
+WORKDIR /build
+COPY pom.xml .
+RUN mvn -B -q -Diceberg.version="${ICEBERG_VERSION}" dependency:copy-dependencies \
+      -DoutputDirectory=/plugins/iceberg-sink -DincludeScope=runtime
+
+# docker.io/debezium/connect:3.0.0.Final
+FROM docker.io/debezium/connect:3.0.0.Final@sha256:039027b9fbe8f18545231806a3d05e292379d38953f0cafce35b90010e97fa8b
+
+COPY --from=deps /plugins/iceberg-sink /kafka/connect/iceberg-sink

@@ -2,28 +2,52 @@
 # (the toolbox also ships the `dna-stack` command; these are the same thing with short names)
 set quiet
 
+# List the services and what is set up
+[group('stack')]
 default:
     dna-stack list
 
 # Pick services (all off by default); --only a,b and --yes skip the questions
+[group('stack')]
 setup *args:
     dna-stack setup {{ args }}
 
+# Show how the set-up services and their local images are doing
+[group('stack')]
 status:
     dna-stack status
 
+# Start services (builds a missing local image first); no names: checklist
+[group('stack')]
 up *services:
     dna-stack up {{ services }}
 
+# Stop services; no names: checklist
+[group('stack')]
 down *services:
     dna-stack down {{ services }}
 
+# Recent logs of one service or all
+[group('stack')]
 logs *args:
     dna-stack logs {{ args }}
 
-# Dry run unless --yes; --volumes also asks to delete the data
+# Remove generated files (dry run unless --yes); --volumes, --images opt in
+[group('stack')]
 remove *args:
     dna-stack remove {{ args }}
 
+# Build the local images (Connect, Airflow, Superset); needs network, takes minutes
+[group('stack')]
+build *args:
+    dna-stack build {{ args }}
+
+# Resolve registry image digests into images.lock
+[group('stack')]
 lock *args:
     dna-stack lock {{ args }}
+
+# Install ROCm or CUDA on demand in the box and export its tools (menu on a terminal)
+[group('stack')]
+gpu *args:
+    dna-gpu {{ args }}

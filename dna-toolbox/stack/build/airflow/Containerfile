@@ -1,0 +1,26 @@
+# Generic Apache Airflow image for the dna stack: no DAGs, pipelines or dbt projects are baked in (they are bind
+# mounted from the host by the dna-stack files). Built on the user's host by `dna-stack build` (nothing
+# publishes this image). Needs network: apt, PyPI-hosted packages and the base-image registry.
+# Python 3.11 is deliberate: lock files pin a pyarrow that has no 3.13 wheel, so the default image variant
+# (3.13) would not install them.
+# The base is pinned by digest (manifest list, resolved 2026-11-09, not signed upstream).
+
+# docker.io/apache/airflow:3.3.1-python3.11
+FROM docker.io/apache/airflow:3.3.1-python3.11@sha256:9417c2bba39de23e375f1fe98f284aee1561cedafd521edf1171b26c3b1e46e5
+
+USER root
+# git: pipelines and dbt projects often pull packages from git
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends git \
+ && rm -rf /var/lib/apt/lists/* \
+ && mkdir -p /opt/venvs /opt/lakehouse \
+ && chown -R airflow /opt/venvs /opt/lakehouse
+COPY dna-venv /usr/local/bin/dna-venv
+RUN chmod 0755 /usr/local/bin/dna-venv
+USER airflow
+
+ENV LAKEHOUSE_HOME=/opt/lakehouse
+
+# Extra tools (dlt, dbt, ...) live in their own virtual environments under /opt/venvs, kept apart from
+# Airflow's environment: Airflow's constraints file collides with the dbt-core and dlt pins. Create one at
+# run time from a requirements file with: dna-venv <name> <requirements.txt>

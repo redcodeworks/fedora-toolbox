@@ -15,15 +15,18 @@ fail() { printf 'FAIL  %s\n' "$*"; bad=1; }
 
 echo "== pins: DBR ${DNA_DBR_VERSION}, Spark ${DNA_SPARK_VERSION}, Scala ${DNA_SCALA_VERSION}, Java ${DNA_JAVA_VERSION}, Python ${DNA_PYTHON_VERSION}, Hadoop ${DNA_HADOOP_VERSION}, Delta ${DNA_DELTA_VERSION}"
 
-echo "== GPU (ROCm)"
-for d in /dev/kfd /dev/dri; do
-    [[ -e "${d}" ]] && ok "${d} is visible" || warn "${d} is not visible: the box was created without the GPU devices"
+echo "== GPU (no system toolkit is required; install one on demand with dna-gpu rocm|cuda)"
+for dev in /dev/kfd /dev/dri; do
+    [[ -e "${dev}" ]] && ok "${dev} is visible" || warn "${dev} is not visible (fine for NVIDIA or CPU-only; for AMD the box needs the GPU devices)"
 done
 if command -v rocminfo >/dev/null; then
     if rocminfo 2>/dev/null | grep -q 'gfx1201'; then ok "rocminfo lists gfx1201 (RX 9070 XT)"
-    elif rocminfo 2>/dev/null | grep -qE 'gfx[0-9a-f]+'; then warn "rocminfo lists a GPU, but not gfx1201: $(rocminfo 2>/dev/null | grep -oE 'gfx[0-9a-f]+' | sort -u | tr '\n' ' ')"
+    elif rocminfo 2>/dev/null | grep -qE 'gfx[0-9a-f]+'; then ok "rocminfo lists: $(rocminfo 2>/dev/null | grep -oE 'gfx[0-9a-f]+' | sort -u | tr '\n' ' ')"
     else warn "rocminfo shows no GPU agent (no access to /dev/kfd, or no supported GPU)"; fi
-else fail "rocminfo is missing"; fi
+else warn "rocminfo not installed (optional: dna-gpu rocm)"; fi
+if command -v nvidia-smi >/dev/null; then
+    nvidia-smi -L >/dev/null 2>&1 && ok "nvidia-smi sees: $(nvidia-smi -L 2>/dev/null | head -n1)" || warn "nvidia-smi is installed but sees no GPU"
+else warn "nvidia-smi not found (NVIDIA needs the box created with --nvidia; see dna-gpu cuda)"; fi
 
 echo "== Python (uv-managed ${DNA_PYTHON_VERSION})"
 command -v uv >/dev/null && ok "uv $(uv --version | cut -d' ' -f2)" || fail "uv is missing"
@@ -31,10 +34,10 @@ if [[ -x "${VENV}/bin/python" ]]; then
     ok "venv ${VENV}: $("${VENV}/bin/python" --version)"
     "${VENV}/bin/python" -c 'import databricks.connect' 2>/dev/null && ok "databricks-connect importable" || warn "databricks-connect not importable in the venv"
     if "${VENV}/bin/python" -c 'import torch' 2>/dev/null; then
-        # UNVERIFIED territory: the ROCm wheel on gfx1201 is reported here, not assumed
+        # What the wheel itself sees is reported, not assumed (the wheel brings its own ROCm or CUDA runtime)
         "${VENV}/bin/python" -c 'import torch,sys; sys.exit(0 if torch.cuda.is_available() else 1)' \
-            && ok "torch sees the GPU (HIP $("${VENV}/bin/python" -c 'import torch; print(torch.version.hip)'))" \
-            || warn "torch is installed but does not see the GPU (unverified for gfx1201)"
+            && ok "torch sees the GPU: $("${VENV}/bin/python" -c 'import torch; print(torch.cuda.get_device_name(0), "HIP", torch.version.hip, "CUDA", torch.version.cuda)')" \
+            || warn "torch is installed but sees no GPU (CPU build, or no device access)"
     else warn "torch is not installed in the venv (dna-setup --torch, needs DNA_TORCH_INDEX)"; fi
 else warn "no venv yet: run dna-setup"; fi
 

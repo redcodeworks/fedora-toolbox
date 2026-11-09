@@ -1,0 +1,417 @@
+#!/usr/bin/env bash
+# dna-gpu: install a GPU toolkit (ROCm or CUDA) on demand inside the toolbox with dnf, and export its command-line
+# tools to the host. The image itself carries neither: the analytics venv uses the PyPI PyTorch wheels, which bring
+# their own runtime, so a system toolkit is only needed for compilers (hipcc, nvcc) and diagnostics.
+#
+# Runs INSIDE the toolbox. Only binaries can be exported (never libraries): the wrappers in ~/.local/bin call
+# `distrobox enter`, so the first call starts the box. UNVERIFIED (no container runtime or GPU where this was
+# written): GPU device access, wrapper survival after a box is recreated, the dnf5 repo file name for CUDA.
+set -uo pipefail
+
+STATE=${DNA_GPU_STATE:-${XDG_STATE_HOME:-${HOME}/.local/state}/dna-gpu}
+EXPORT_DIR=${DNA_GPU_EXPORT_PATH:-${HOME}/.local/bin}
+OS_RELEASE=${DNA_GPU_OS_RELEASE:-/etc/os-release}
+CONTAINERENV=${DNA_GPU_CONTAINERENV:-/run/.containerenv}
+REPO_DIR=${DNA_GPU_REPO_DIR:-/etc/yum.repos.d}
+SUDO=${DNA_GPU_SUDO-sudo}
+YES=0
+FROOT=${DNA_GPU_ROOT:-}   # test hook: prefix for file existence checks of package paths
+TTY=${DNA_GPU_FORCE_TTY:-}   # tests set 1 to fake a terminal; never needed otherwise
+
+say() { printf '%s\n' "$*"; }
+warn() { printf 'warn: %s\n' "$*" >&2; }
+die() { printf 'dna-gpu: %s\n' "$*" >&2; exit 1; }
+undo() { printf '    undo: %s\n' "$*"; }
+is_tty() { [[ "${TTY}" == 1 || -t 0 ]]; }
+as_root() { if [[ -n "${SUDO}" ]]; then "${SUDO}" "$@"; else "$@"; fi; }
+
+ROCM_BASE=(rocm-hip rocminfo rocm-opencl rocm-smi amdsmi hipcc rocm-clinfo)
+# Packages whose /usr/bin files are exported for ROCm (paths come from rpm -ql, not from this list)
+ROCM_EXPORT_PKGS=(rocminfo rocm-smi amdsmi hipcc rocm-clinfo)
+# add-on id|package(s) (space separated; missing ones are skipped after a repoquery)|description
+ROCM_ADDONS=(
+    "devel|rocm-hip-devel hipblas-devel rocblas-devel|HIP development headers and BLAS libraries (names unverified, missing ones are skipped)"
+    "ollama-rocm|ollama-rocm|ollama ROCm backend"
+    "llama-cpp|llama-cpp|llama.cpp with HIP support"
+    "python3-torch|python3-torch|PyTorch RPM for the system Python (large; the venv uses PyPI wheels instead)"
+)
+CUDA_EXPORT_NAMES='^(nvcc|cuobjdump|nvdisasm|cuxxfilt|nvprune)$'
+
+usage() {
+    cat <<'TXT'
+dna-gpu: install a GPU toolkit on demand inside the toolbox and export its tools to the host
+
+  dna-gpu                       on a terminal: a menu; otherwise this text
+  dna-gpu rocm [--yes] [--addons a,b] [--no-export]
+                                ROCm userspace (rocm-hip rocminfo rocm-opencl rocm-smi amdsmi hipcc rocm-clinfo),
+                                add-ons from a menu (all off): devel, ollama-rocm, llama-cpp, python3-torch
+  dna-gpu cuda [--yes] [--package NAME] [--no-export]
+                                NVIDIA's CUDA repository (out-of-tree) and cuda-toolkit; exports nvcc and friends
+  dna-gpu status                what is installed, exported and visible (changes nothing)
+  dna-gpu remove rocm|cuda [--yes]
+                                delete the exported wrappers it created, then dnf remove (asks first)
+  dna-gpu help
+
+Runs inside the toolbox; on the host: distrobox enter dna-toolbox -- dna-gpu rocm
+Without --yes on a terminal every step asks (default no); without a terminal and without --yes it is a dry run.
+Environment: DNA_GPU_PICKER=plain (no gum), DNA_GPU_STATE, DNA_GPU_EXPORT_PATH (default ~/.local/bin).
+TXT
+}
+
+use_gum() { [[ "${DNA_GPU_PICKER:-}" != plain ]] && command -v gum >/dev/null 2>&1; }   # DNA_GPU_PICKER=plain: no gum (tests)
+in_box() { [[ -e "${CONTAINERENV}" || -n "${CONTAINER_ID:-}" ]]; }
+need_box() {
+    in_box && return 0
+    say "dna-gpu installs packages inside the toolbox. You are on the host; run it there:"
+    say "    distrobox enter dna-toolbox -- dna-gpu ${*:-<rocm|cuda|status>}"
+    exit 1
+}
+need_cmd() { command -v "$1" >/dev/null 2>&1 || die "$1 is not available in this box"; }
+
+confirm() { # question; default NO; yes flag in $YES
+    (( YES )) && return 0
+    is_tty || return 1
+    local a; read -r -p "$1 [y/N] " a || a=n
+    [[ "${a}" =~ ^[Yy] ]]
+}
+
+dry_note() { is_tty || (( YES )) || say "dry run: no terminal and no --yes, nothing changed (pass --yes to apply)"; }
+
+# ---------------------------------------------------------------- helpers
+pkg_available() { [[ -n "$(dnf repoquery -q "$1" 2>/dev/null | head -n1)" ]]; }
+pkg_installed() { rpm -q "$1" >/dev/null 2>&1; }
+
+# Keep only the packages dnf can find; report the others
+available_of() {
+    local p
+    for p in "$@"; do
+        if pkg_available "${p}"; then echo "${p}"; else warn "${p} is not available in the enabled repositories, skipped"; fi
+    done
+}
+
+dnf_install() { # packages...
+    local -a y=(); (( YES )) && y=(-y)
+    say "  sudo dnf install ${y[*]} $*"
+    as_root dnf install "${y[@]}" "$@"
+}
+
+gpu_devices() {
+    local ok=1 d
+    for d in /dev/kfd /dev/dri; do [[ -e "${d}" ]] || ok=0; done
+    ls -l /dev/kfd /dev/dri 2>&1 | sed 's/^/    /'
+    say "    groups: $(id -nG 2>/dev/null)"
+    if (( ! ok )); then
+        say "  /dev/kfd or /dev/dri is missing in this box. Recreate it with the devices passed in, for example:"
+        say "    distrobox create --name dna-toolbox --image ghcr.io/redcodeworks/dna-toolbox:latest --additional-flags \"--device /dev/kfd --device /dev/dri\""
+        say "  (distrobox is privileged and normally bind-mounts /dev, so this should already work: unverified)"
+    fi
+}
+
+# ---------------------------------------------------------------- exports
+wrapper_is_ours() { [[ -f "$1" ]] && grep -q 'distrobox_binary' "$1"; }
+
+# Export each path; remember the wrappers this tool created in ${STATE}/<profile>.exports (name|path)
+export_paths() { # profile path...
+    local prof=$1 p name target
+    shift
+    need_cmd distrobox-export
+    mkdir -p "${STATE}" "${EXPORT_DIR}"
+    touch "${STATE}/${prof}.exports"
+    for p in "$@"; do
+        name=$(basename "${p}"); target="${EXPORT_DIR}/${name}"
+        if [[ -e "${target}" ]] && ! wrapper_is_ours "${target}"; then
+            if is_tty && ! (( YES )); then
+                if confirm "${target} exists and was not created by distrobox-export. Overwrite it with --force?"; then
+                    distrobox-export --bin "${p}" --export-path "${EXPORT_DIR}" --force || { warn "export of ${name} failed"; continue; }
+                    grep -qx "${name}|${p}" "${STATE}/${prof}.exports" || echo "${name}|${p}" >> "${STATE}/${prof}.exports"
+                    say "  exported ${name} (replaced)"
+                else say "  kept ${target}"; fi
+            else warn "${target} exists and is not a distrobox wrapper: not overwritten (run on a terminal to be asked)"; fi
+            continue
+        fi
+        if distrobox-export --bin "${p}" --export-path "${EXPORT_DIR}"; then
+            grep -qx "${name}|${p}" "${STATE}/${prof}.exports" || echo "${name}|${p}" >> "${STATE}/${prof}.exports"
+            say "  exported ${name} -> ${target}"
+            undo "distrobox-export --bin ${p} --export-path ${EXPORT_DIR} --delete"
+        else warn "export of ${name} failed"; fi
+    done
+}
+
+# /usr/bin files of installed packages, from rpm -ql (executables only)
+bins_of_pkgs() {
+    local p f
+    for p in "$@"; do
+        pkg_installed "${p}" || continue
+        while read -r f; do [[ -x "${FROOT}${f}" && -f "${FROOT}${f}" ]] && echo "${f}"; done < <(rpm -ql "${p}" 2>/dev/null | grep '^/usr/bin/')
+    done
+}
+
+# ---------------------------------------------------------------- pick helpers
+# multi-select (gum, else y/N each); all off; prints chosen ids
+pick_addons() {
+    local -a ids=() desc=()
+    local e id rest
+    for e in "${ROCM_ADDONS[@]}"; do ids+=("${e%%|*}"); rest=${e#*|}; desc+=("${rest#*|}"); done
+    is_tty || return 0
+    if use_gum; then
+        local -a items=(); local i
+        for i in "${!ids[@]}"; do items+=("${ids[i]}: ${desc[i]}"); done
+        gum choose --no-limit --header "Add-ons (nothing is selected by default; x ticks, Enter confirms)" "${items[@]}" | sed 's/:.*//' || true
+    else
+        local a i
+        for i in "${!ids[@]}"; do
+            read -r -p "Add ${ids[i]} (${desc[i]})? [y/N] " a || a=n
+            [[ "${a}" =~ ^[Yy] ]] && echo "${ids[i]}"
+        done
+    fi
+    return 0
+}
+addon_pkgs() { local e; for e in "${ROCM_ADDONS[@]}"; do [[ "${e%%|*}" == "$1" ]] && { e=${e#*|}; echo "${e%%|*}"; }; done; }
+
+# ---------------------------------------------------------------- rocm
+cmd_rocm() {
+    local addons="" noexp=0 id
+    while (( $# )); do
+        case "$1" in
+            --yes|-y) YES=1 ;;
+            --addons) addons=${2:-}; shift ;;
+            --no-export) noexp=1 ;;
+            *) die "unknown option $1 (dna-gpu help)" ;;
+        esac
+        shift
+    done
+    need_box rocm
+    need_cmd dnf; need_cmd rpm
+    say "ROCm profile: base set ${ROCM_BASE[*]} (Fedora packages, inside this box only)"
+    local -a want=("${ROCM_BASE[@]}") chosen=()
+    if [[ -n "${addons}" ]]; then IFS=',' read -r -a chosen <<<"${addons}"
+    elif ! (( YES )); then mapfile -t chosen < <(pick_addons); fi
+    for id in "${chosen[@]:-}"; do
+        [[ -n "${id}" ]] || continue
+        local pk; pk=$(addon_pkgs "${id}")
+        [[ -n "${pk}" ]] || { warn "unknown add-on '${id}' (devel, ollama-rocm, llama-cpp, python3-torch)"; continue; }
+        # shellcheck disable=SC2206  # word splitting of the package list is intended
+        want+=(${pk})
+    done
+    say "Plan: install ${want[*]} (unavailable names are skipped), then export the CLI tools to ${EXPORT_DIR}"
+    if ! is_tty && ! (( YES )); then dry_note; return 0; fi
+    confirm "Install these packages now?" || { say "nothing changed"; return 0; }
+    local -a have=()
+    mapfile -t have < <(available_of "${want[@]}")
+    [[ "${#have[@]}" -gt 0 ]] || die "none of the packages are available; check the enabled repositories (dnf repolist)"
+    local todo=() p
+    for p in "${have[@]}"; do pkg_installed "${p}" || todo+=("${p}"); done
+    if [[ "${#todo[@]}" -eq 0 ]]; then say "  everything is already installed"
+    else
+        dnf_install "${todo[@]}" || { say "dnf failed. Nothing was exported. Re-run: dna-gpu rocm"; return 1; }
+        undo "dna-gpu remove rocm"
+    fi
+    gpu_devices
+    if (( noexp )); then say "export skipped (--no-export)"; return 0; fi
+    local -a bins=()
+    mapfile -t bins < <(bins_of_pkgs "${ROCM_EXPORT_PKGS[@]}" | sort -u)
+    [[ "${#bins[@]}" -gt 0 ]] || { warn "no /usr/bin files found for ${ROCM_EXPORT_PKGS[*]}; nothing exported"; return 0; }
+    export_paths rocm "${bins[@]}"
+    say "Done. The exported tools run inside the box through distrobox enter (the first call starts the box)."
+}
+
+# ---------------------------------------------------------------- cuda
+fedora_nn() { sed -n 's/^VERSION_ID=//p' "${OS_RELEASE}" | tr -d '"'; }
+
+gcc_note() {
+    command -v gcc >/dev/null 2>&1 || return 0
+    local major; major=$(gcc -dumpversion 2>/dev/null | cut -d. -f1)
+    [[ "${major}" =~ ^[0-9]+$ ]] || return 0
+    if (( major < 6 || major > 16 )); then
+        say "  note: this box's gcc is ${major}; NVIDIA's guide lists GCC 6 to 16 as supported for nvcc."
+        say "  If nvcc rejects the host compiler, point it at another one: export NVCC_CCBIN=/path/to/supported/g++"
+    fi
+}
+
+cmd_cuda() {
+    local pkg="" noexp=0
+    while (( $# )); do
+        case "$1" in
+            --yes|-y) YES=1 ;;
+            --package) pkg=${2:-}; shift ;;
+            --no-export) noexp=1 ;;
+            *) die "unknown option $1 (dna-gpu help)" ;;
+        esac
+        shift
+    done
+    need_box cuda
+    need_cmd dnf; need_cmd rpm
+    local nn url repofile key
+    nn=$(fedora_nn)
+    [[ "${nn}" =~ ^[0-9]+$ ]] || die "cannot read VERSION_ID from ${OS_RELEASE}"
+    url="https://developer.download.nvidia.com/compute/cuda/repos/fedora${nn}/x86_64/cuda-fedora${nn}.repo"
+    key="https://developer.download.nvidia.com/compute/cuda/repos/fedora${nn}/x86_64/D42D0685.pub"
+    repofile="${REPO_DIR}/cuda-fedora${nn}.repo"
+    say "CUDA profile for Fedora ${nn}"
+    say "  NOTE: this adds NVIDIA's OUT-OF-TREE repository (not a Fedora package source):"
+    say "    ${url}"
+    say "  NVIDIA's guide lists Fedora 44 as supported; Fedora 45 is published but not listed as supported."
+    say "  dnf will ask to import NVIDIA's signing key (${key}); it is only accepted automatically with --yes."
+    say "  The NVIDIA DRIVER is separate and comes from the host: create the box with distrobox's --nvidia flag."
+    if ! command -v nvidia-smi >/dev/null 2>&1; then
+        say "  nvidia-smi is NOT available in this box, so there is no driver access yet. Options:"
+        say "    - recreate the box with: distrobox create --nvidia --name dna-toolbox --image ghcr.io/redcodeworks/dna-toolbox:latest"
+        say "      (whether the 'ujust toolbox' definition supports an nvidia flag is not known here; ask the host side)"
+        say "    - or RPM Fusion's xorg-x11-drv-nvidia-cuda (driver side only, no nvcc; must match the host driver: unverified)"
+        say "  The toolkit can still be installed now; nvcc compiles without a driver, it just cannot run on a GPU."
+    else say "  nvidia-smi found: $(nvidia-smi --query-gpu=name,driver_version --format=csv,noheader 2>/dev/null | head -n1)"; fi
+    say "Plan: add the repository (if missing), install a cuda-toolkit package, export nvcc and friends to ${EXPORT_DIR}"
+    if ! is_tty && ! (( YES )); then dry_note; return 0; fi
+    confirm "Add NVIDIA's repository and install the CUDA toolkit?" || { say "nothing changed"; return 0; }
+    mkdir -p "${STATE}"
+    if [[ -f "${repofile}" ]]; then say "  repository file ${repofile} already present"
+    else
+        say "  sudo dnf config-manager addrepo --from-repofile=${url}"
+        as_root dnf config-manager addrepo "--from-repofile=${url}" || { say "adding the repository failed (is dnf5-plugins installed? is the URL reachable?). Re-run: dna-gpu cuda"; return 1; }
+        echo "${repofile}" > "${STATE}/cuda.repo-created"
+        undo "dna-gpu remove cuda (deletes ${repofile})"
+    fi
+    if [[ -z "${pkg}" ]]; then
+        local -a cands=()
+        mapfile -t cands < <(dnf repoquery -q --queryformat '%{name}\n' 'cuda-toolkit*' 'cuda-nvcc*' 2>/dev/null | sort -u | grep -E '^cuda-toolkit(-[0-9]+)*$')
+        if [[ "${#cands[@]}" -eq 0 ]]; then warn "repoquery lists no cuda-toolkit candidates; trying the documented name cuda-toolkit"; pkg=cuda-toolkit
+        elif is_tty && ! (( YES )) && [[ "${#cands[@]}" -gt 1 ]]; then
+            say "Candidates: ${cands[*]}"
+            if use_gum; then pkg=$(gum choose --header "Which toolkit package?" "${cands[@]}" || true)
+            else read -r -p "Package [cuda-toolkit]: " pkg || pkg=""; fi
+            pkg=${pkg:-cuda-toolkit}
+        else pkg=cuda-toolkit; fi
+    fi
+    if pkg_installed "${pkg}"; then say "  ${pkg} is already installed"
+    else
+        dnf_install "${pkg}" || { say "dnf failed. Re-run: dna-gpu cuda --package ${pkg}"; return 1; }
+        echo "${pkg}" >> "${STATE}/cuda.packages"
+        undo "dna-gpu remove cuda"
+    fi
+    gcc_note
+    if (( noexp )); then say "export skipped (--no-export)"; return 0; fi
+    local -a pk=() paths=()
+    mapfile -t pk < <(rpm -qa --qf '%{NAME}\n' 'cuda-nvcc*' 'cuda-cuobjdump*' 'cuda-nvdisasm*' 'cuda-cuxxfilt*' 'cuda-nvprune*' 2>/dev/null | sort -u)
+    local f seen=" "
+    while read -r f; do
+        [[ -x "${FROOT}${f}" && -f "${FROOT}${f}" ]] || continue
+        [[ "$(basename "${f}")" =~ ${CUDA_EXPORT_NAMES} ]] || continue
+        [[ "${seen}" == *" $(basename "${f}") "* ]] && continue
+        seen+="$(basename "${f}") "; paths+=("${f}")
+    done < <(for p in "${pk[@]:-}"; do [[ -n "${p}" ]] && rpm -ql "${p}" 2>/dev/null | grep '/bin/'; done | sort -rV)
+    [[ "${#paths[@]}" -gt 0 ]] || { warn "no nvcc found in the installed packages; nothing exported"; return 0; }
+    export_paths cuda "${paths[@]}"
+    say "Done. The exported tools run inside the box through distrobox enter (the first call starts the box)."
+}
+
+# ---------------------------------------------------------------- status and remove
+cmd_status() {
+    need_box status
+    local prof name path
+    say "== devices"
+    ls -l /dev/kfd /dev/dri /dev/nvidiactl 2>&1 | sed 's/^/  /'
+    say "== ROCm"
+    local p; for p in "${ROCM_BASE[@]}"; do if pkg_installed "${p}"; then say "  installed  ${p}"; else say "  absent     ${p}"; fi; done
+    say "== CUDA"
+    local c; c=$(rpm -qa --qf '%{NAME}\n' 'cuda-toolkit*' 2>/dev/null | sort -u)
+    say "  toolkit packages: ${c:-none}"
+    command -v nvcc >/dev/null 2>&1 && say "  nvcc in the box: $(command -v nvcc)" || say "  nvcc not in the box PATH"
+    command -v nvidia-smi >/dev/null 2>&1 && say "  nvidia-smi: present" || say "  nvidia-smi: missing (the driver comes from the host; create the box with --nvidia)"
+    say "== exported wrappers (${EXPORT_DIR})"
+    for prof in rocm cuda; do
+        [[ -f "${STATE}/${prof}.exports" ]] || continue
+        while IFS='|' read -r name path; do
+            [[ -n "${name}" ]] || continue
+            say "  ${prof}: ${name}: wrapper $([[ -e "${EXPORT_DIR}/${name}" ]] && echo present || echo MISSING), binary in box $([[ -x "${FROOT}${path}" ]] && echo yes || echo NO) (${path})"
+        done < "${STATE}/${prof}.exports"
+    done
+    if command -v distrobox-export >/dev/null 2>&1 && distrobox-export --help 2>&1 | grep -q -- '--list-binaries'; then
+        say "== distrobox-export --list-binaries"; distrobox-export --list-binaries 2>&1 | sed 's/^/  /'
+    fi
+    ls "${STATE}"/*.exports >/dev/null 2>&1 || say "  none recorded by dna-gpu"
+}
+
+cmd_remove() {
+    local prof=""
+    while (( $# )); do
+        case "$1" in
+            --yes|-y) YES=1 ;;
+            rocm|cuda) prof=$1 ;;
+            *) die "usage: dna-gpu remove rocm|cuda [--yes]" ;;
+        esac
+        shift
+    done
+    [[ -n "${prof}" ]] || die "usage: dna-gpu remove rocm|cuda [--yes]"
+    need_box remove "${prof}"
+    need_cmd dnf; need_cmd rpm
+    local -a pkgs=() wr=()
+    if [[ "${prof}" == rocm ]]; then
+        local p e id
+        for p in "${ROCM_BASE[@]}"; do pkg_installed "${p}" && pkgs+=("${p}"); done
+        for e in "${ROCM_ADDONS[@]}"; do
+            id=${e%%|*}
+            for p in $(addon_pkgs "${id}"); do pkg_installed "${p}" && pkgs+=("${p}"); done
+        done
+    else
+        mapfile -t pkgs < <(rpm -qa --qf '%{NAME}\n' 'cuda-toolkit*' 2>/dev/null | sort -u)
+    fi
+    [[ -f "${STATE}/${prof}.exports" ]] && mapfile -t wr < "${STATE}/${prof}.exports"
+    say "Would remove (${prof}):"
+    say "  wrappers: $(printf '%s ' "${wr[@]%%|*}")"
+    say "  packages: ${pkgs[*]:-none installed}"
+    [[ "${prof}" == cuda && -f "${STATE}/cuda.repo-created" ]] && say "  repository file: $(cat "${STATE}/cuda.repo-created") (created by dna-gpu)"
+    if ! is_tty && ! (( YES )); then dry_note; return 0; fi
+    local line name path
+    for line in "${wr[@]}"; do
+        name=${line%%|*}; path=${line#*|}
+        [[ -n "${name}" ]] || continue
+        if wrapper_is_ours "${EXPORT_DIR}/${name}"; then
+            distrobox-export --bin "${path}" --export-path "${EXPORT_DIR}" --delete && say "  deleted wrapper ${name}"
+            undo "dna-gpu ${prof}  (exports it again)"
+        else say "  wrapper ${name} is gone or not ours, skipped"; fi
+    done
+    rm -f "${STATE}/${prof}.exports"
+    if [[ "${#pkgs[@]}" -gt 0 ]]; then
+        if confirm "dnf remove ${pkgs[*]}?"; then
+            local -a y=(); (( YES )) && y=(-y)
+            as_root dnf remove "${y[@]}" "${pkgs[@]}" || { say "dnf remove failed; re-run: dna-gpu remove ${prof}"; return 1; }
+            undo "dna-gpu ${prof}"
+        else say "  packages kept"; fi
+    fi
+    if [[ "${prof}" == cuda && -f "${STATE}/cuda.repo-created" ]]; then
+        local rf; rf=$(cat "${STATE}/cuda.repo-created")
+        if confirm "Delete the repository file ${rf} that dna-gpu added?"; then
+            as_root rm -f "${rf}" && rm -f "${STATE}/cuda.repo-created" "${STATE}/cuda.packages"
+            undo "dna-gpu cuda (adds the repository again)"
+        fi
+    fi
+}
+
+cmd_menu() {
+    local choice
+    local -a items=("rocm: install the ROCm userspace (AMD)" "cuda: install the CUDA toolkit (NVIDIA, out-of-tree repository)" "status: what is installed and exported" "remove rocm" "remove cuda")
+    if use_gum; then choice=$(gum choose --header "dna-gpu: what do you want to do?" "${items[@]}" || true)
+    else
+        local PS3="Choose (empty line to quit): "
+        select choice in "${items[@]}"; do break; done
+    fi
+    [[ -n "${choice:-}" ]] || { say "nothing chosen; run dna-gpu help to see the commands"; return 0; }
+    choice=${choice%%:*}
+    # shellcheck disable=SC2086  # "remove rocm" is two words on purpose
+    main ${choice}
+}
+
+main() {
+    local c=${1:-}
+    [[ $# -eq 0 ]] || shift
+    case "${c}" in
+        "") if is_tty; then cmd_menu; else usage; fi ;;
+        help|-h|--help) usage ;;
+        rocm) cmd_rocm "$@" ;;
+        cuda) cmd_cuda "$@" ;;
+        status) cmd_status ;;
+        remove) cmd_remove "$@" ;;
+        *) usage >&2; exit 1 ;;
+    esac
+}
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then main "$@"; fi
