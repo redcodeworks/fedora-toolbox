@@ -2,22 +2,24 @@
 # installed only logs a warning and never fails the build, and smoke.sh never requires them.
 # Same format as core.txt.
 
-# --- ollama with its ROCm and Vulkan backends, and a Python client ---
-ollama
-ollama-rocm
+# --- ollama without ROCm: on Fedora 45 the `ollama` package requires ollama-base, ollama-rocm and ollama-vulkan,
+# and `llama-cpp` needs hipblas and the HIP runtime (checked with dnf repoquery --requires, 2026-11-09), so
+# neither stays in the image. ollama-base and ollama-vulkan do not pull ROCm. `dna-gpu rocm` offers ollama-rocm,
+# llama-cpp and python3-torch as add-ons. ---
+ollama-base
 ollama-vulkan
 python3-ollama
-llama-cpp
 
 # F44 FINDING (CI build 2026-11-09): on the Fedora 44 base, `ollama-rocm`, `ollama-vulkan` and
-# `java-21-openjdk` were "No match" (they exist on Fedora 45 per the hub's check), so only `ollama`,
-# `python3-ollama` and `llama-cpp` install until the base moves; Java 21 comes from SDKMAN (dna-setup --sdkman).
+# `java-21-openjdk` were "No match" (they exist on Fedora 45), and optional packages only warn; Java 21 comes
+# from SDKMAN (dna-setup --sdkman).
 # --- Java for Spark and Hadoop: keep the version in step with DNA_JAVA_VERSION (versions.env) ---
 java-21-openjdk
 
 # --- For users of the system Python only; the analytics venv gets its own copies from PyPI ---
 python3-notebook
 
-# Not installed on purpose: python3-torch. The RPM is built for the system Python, so a uv-managed
-# 3.12 venv cannot import it, and it drags in a very large dependency set; dna-setup --torch installs
-# the ROCm wheel into the venv instead.
+# Not installed on purpose: python3-torch (and llama-cpp, ollama-rocm). They pull ROCm libraries (hipblas,
+# rocblas, miopen, rocm-hip), which are not in the image; `dna-gpu rocm` offers them as add-ons. The torch RPM
+# is built for the system Python, so a uv-managed 3.12 venv cannot import it anyway; the venv gets the PyPI
+# wheel (dna-setup --torch), which brings its own ROCm or CUDA runtime.

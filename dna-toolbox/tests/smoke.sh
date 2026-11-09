@@ -24,9 +24,11 @@ echo "ok: no user-specific content in /home or /etc/passwd"
 
 # critical tools only (optional.txt packages are never required)
 run uv --version
-command -v rocminfo >/dev/null || fail "rocminfo missing"
-command -v rocm-smi >/dev/null || fail "rocm-smi missing"
-echo "ok: uv, rocminfo, rocm-smi"
+echo "ok: uv"
+# no GPU toolkit in the image (dna-gpu installs ROCm or CUDA on demand)
+for t in rocminfo nvcc; do ! command -v "${t}" >/dev/null || fail "${t} is in the image; GPU toolkits belong to dna-gpu"; done
+rpm -q dnf5-plugins >/dev/null || fail "dnf5-plugins missing (dna-gpu cuda needs config-manager)"
+echo "ok: no GPU toolkit in the image, dnf5-plugins present"
 
 # the server stack tooling is installed and its shipped files pass the static checks
 run dna-stack list
@@ -48,12 +50,13 @@ run mamba --version
 run psql --version
 run jupyter-lab --version
 command -v kcat >/dev/null || fail "kcat missing"
-for t in dna-setup dna-lab dna-doctor; do
+for t in dna-setup dna-lab dna-doctor dna-gpu; do
     command -v "${t}" >/dev/null || fail "${t} missing"
     bash -n "$(command -v "${t}")" || fail "${t} has a syntax error"
 done
 dna-doctor >/dev/null || fail "dna-doctor failed"
-echo "ok: kcat, dna-setup, dna-lab, dna-doctor"
+dna-gpu help >/dev/null || fail "dna-gpu help failed"
+echo "ok: kcat, dna-setup, dna-lab, dna-doctor, dna-gpu"
 # the pinned DuckDB download is optional: checked only when it was installed
 if command -v duckdb >/dev/null; then run duckdb --version; else echo "note: duckdb not installed (optional download)"; fi
 

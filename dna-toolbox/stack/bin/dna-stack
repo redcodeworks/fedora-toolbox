@@ -54,8 +54,13 @@ is_selected() { selected | grep -qx "$1"; }
 
 lockfile() { if [[ -f "${STATE}/images.lock" ]]; then echo "${STATE}/images.lock"; else echo "${ROOT}/images.lock"; fi; }
 image_ref() {
+    # local builds always use the fixed local tag, whatever an old state-dir lock says
+    if has_build "$1"; then echo "localhost/dna-$1:local"; return; fi
     awk -F'|' -v n="$1" '!/^#/ && $1 == n { if ($3 != "") print $2 "@" $3; else print $2 }' "$(lockfile)"
 }
+# Services whose image is built on the host from a context shipped in ${ROOT}/build/<service>/
+has_build() { [[ -f "${ROOT}/build/$1/Containerfile" ]]; }
+build_services() { local n; for n in $(catalog_names); do ! shipped "${n}" || ! has_build "${n}" || echo "${n}"; done; }
 port_key() { case "$1" in seaweedfs) echo SEAWEEDFS_S3 ;; *) printf '%s' "${1^^}" ;; esac; }
 host_port() {
     local key base
@@ -113,6 +118,57 @@ host() {
         flatpak) flatpak-spawn --host "$@" ;;
         *) die "host access not detected" ;;
     esac
+}
+
+# ---------------------------------------------------------------- local image builds
+# Connect, Airflow and Superset are not published images: their build contexts ship inside the toolbox. At
+# setup the context is copied to ${STATE}/build/<service> (under the shared home, so the host sees the same
+# path) and built on the host with the host runtime into localhost/dna-<service>:local. No hashes or tag
+# logic of our own: the runtime's layer cache decides what is rebuilt.
+
+stage_build() { # copies the shipped context to the state dir (always refreshed)
+    local s=$1
+    mkdir -p "${STATE}/build"
+    rm -rf "${STATE:?}/build/${s}"
+    cp -r "${ROOT}/build/${s}" "${STATE}/build/${s}"
+}
+
+image_exists() { host "${RT}" image inspect "$(image_ref "$1")" >/dev/null 2>&1; }
+
+# built | not built | unknown (no host access), for list and status
+image_state() {
+    local r
+    r=$( ( detect; image_exists "$1" && echo built || echo "not built" ) 2>/dev/null ) || r=""
+    echo "${r:-unknown}"
+}
+
+build_needs() {
+    case "$1" in
+        connect) echo "Maven Central (Iceberg sink jars) and docker.io (base images)" ;;
+        airflow) echo "docker.io (base image) and Debian mirrors (apt)" ;;
+        superset) echo "docker.io (base image) and PyPI (database drivers)" ;;
+    esac
+}
+
+# Build one image. A failed build leaves no new tag (the runtime tags only on success).
+build_image() { # service, rebuild (0|1)
+    local s=$1 rebuild=${2:-0} tag
+    tag=$(image_ref "${s}")
+    if (( ! rebuild )) && image_exists "${s}"; then
+        say "  ${tag} is already built (to force: dna-stack build --rebuild ${s})"
+        return 0
+    fi
+    stage_build "${s}"
+    say "Building ${tag}: needs network ($(build_needs "${s}")) and can take several minutes."
+    say "  context ${STATE}/build/${s}; the build output follows. If it fails it is safe to run it again."
+    local -a args=(build -t "${tag}")
+    (( ! rebuild )) || args+=(--no-cache)
+    if ! host "${RT}" "${args[@]}" "${STATE}/build/${s}"; then
+        say "build of ${tag} FAILED (no tag was written). Check the last lines above, then re-run: dna-stack build ${s}"
+        return 1
+    fi
+    say "  built ${tag}"
+    undo "dna-stack remove ${s} --images (removes the image with the service)"
 }
 
 describe_env() {
@@ -173,13 +229,15 @@ render_compose() { # out-dir, services...
         for n in $(catalog_names); do
             shipped "${n}" || continue
             echo "DNA_IMAGE_${n^^}=$(image_ref "${n}")"
+            ! has_build "${n}" || echo "DNA_BUILD_${n^^}=${STATE}/build/${n}"
             echo "DNA_PORT_$(port_key "${n}")=$(host_port "${n}")"
         done
     } > "${out}/.env"
 }
 
 render_support_apps() { # directories and config the app services mount
-    local sel=" $* "
+    local sel=" $* " b
+    for b in $(build_services); do [[ "${sel}" != *" ${b} "* ]] || stage_build "${b}"; done
     if [[ "${sel}" == *" airflow "* ]]; then mkdir -p "${STATE}/airflow/dags" "${STATE}/airflow/lakehouse"; fi
     if [[ "${sel}" == *" superset "* ]]; then
         mkdir -p "${STATE}/superset"
@@ -291,15 +349,19 @@ dna-stack: lakehouse and AI server containers on the host, driven from the toolb
   setup [--only a,b] [--yes]   pick services (all off by default), print the plan, write the files
   status                       state of the selected services
   up | down [service...] [--yes]
-                               start or stop; with no names a checklist (all off), `up` adds missing dependencies,
-                               `down` warns about services that depend on the ones you stop
+                               start or stop; with no names a checklist (all off), `up` adds missing dependencies
+                               and builds a missing local image first (`up --rebuild` forces it), `down` warns
+                               about services that depend on the ones you stop
   logs [service] [--follow]    recent logs
+  build [service...] [--rebuild] [--yes]
+                               build the local images (Connect, Airflow, Superset) on the host from the shipped
+                               contexts; needs network and can take minutes; a menu with no names on a terminal
   bootstrap                    after `up`: bootstrap Lakekeeper, create the S3 bucket and the first warehouse
   superset-admin               after `up`: create the first Superset admin (generated password in the state dir)
-  lock [--root]                resolve the image digests into images.lock (state dir, or the repo copy with --root)
-  remove [service...] [--yes] [--volumes] [--secrets]
+  lock [--root]                resolve the registry image digests into images.lock (local builds are skipped)
+  remove [service...] [--yes] [--volumes] [--secrets] [--images]
                                checklist or names; dry run without --yes or a terminal; removes only what this tool
-                               generated; volumes need --volumes and a typed yes
+                               generated; volumes need --volumes and a typed yes; locally built images need --images
   check                        static checks of the shipped files (no runtime needed)
   render --out DIR --mode quadlet|compose [--all]
                                write the files to DIR only (no host access; used by the tests)
@@ -317,7 +379,11 @@ cmd_list() {
         if shipped "${n}"; then
             mark="[ ]"; is_selected "${n}" && mark="[x]"
         else mark="[-]"; fi
-        printf '%s %-11s %-6s %s\n' "${mark}" "${n}" "$(tier_of "${n}")" "$(summary_of "${n}")"
+        printf '%s %-11s %-6s %s' "${mark}" "${n}" "$(tier_of "${n}")" "$(summary_of "${n}")"
+        if shipped "${n}" && has_build "${n}"; then
+            if is_selected "${n}"; then printf ' [local image: %s]' "$(image_state "${n}")"; else printf ' [local build]'; fi
+        fi
+        printf '\n'
     done
     say "([x] selected, [ ] available, [-] planned, not shipped yet)"
 }
@@ -364,7 +430,8 @@ cmd_setup() {
     [[ "${#all[@]}" -gt 0 ]] || { say "nothing selected; nothing to do (use --only a,b or run in a terminal)"; return 0; }
     say "Plan: ${all[*]}  (dependencies included)"
     for n in "${all[@]}"; do
-        say "  ${n}: $(image_ref "${n}")"
+        if has_build "${n}"; then say "  ${n}: $(image_ref "${n}") (built on this host from the shipped context, at the first start)"
+        else say "  ${n}: $(image_ref "${n}")"; fi
     done
     if [[ "${MODE}" == "quadlet" ]]; then
         say "  write Quadlet files to ${QUADLET_DIR}, create podman secrets, systemctl --user daemon-reload"
@@ -444,12 +511,13 @@ pick_from() {
 
 # Shared front half of up, down and remove. Sets CHOSEN (array) and YES. Candidates are given by the caller.
 parse_names() { # args: the command line after the verb; fills NAMES and YES and EXTRA (other options)
-    NAMES=() YES=0 EXTRA=()
+    NAMES=() YES=0 EXTRA=() REBUILD=0
     local a
     for a in "$@"; do
         case "${a}" in
             --yes|-y) YES=1 ;;
-            --volumes|--secrets) EXTRA+=("${a}") ;;
+            --volumes|--secrets|--images) EXTRA+=("${a}") ;;
+            --rebuild) REBUILD=1 ;;
             -*) die "unknown option ${a}" ;;
             *) known "${a}" || die "unknown service '${a}' (see: dna-stack list)"; NAMES+=("${a}") ;;
         esac
@@ -505,6 +573,14 @@ cmd_up() {
     for s in "${svcs[@]}"; do printf '%s\n' "${want[@]}" | grep -qx "${s}" || extra+=("${s}"); done
     [[ "${#extra[@]}" -eq 0 ]] || say "also starting the dependencies: ${extra[*]}"
     for s in "${svcs[@]}"; do printf '%s\n' "${conf[@]}" | grep -qx "${s}" || die "${s} is not set up (dna-stack setup --only ${s})"; done
+    # Local images: a Quadlet unit would try to pull localhost/... and fail, so build first when missing
+    # (or when --rebuild). In compose mode `up --build` builds; --rebuild forces an explicit no-cache build.
+    for s in "${svcs[@]}"; do
+        has_build "${s}" || continue
+        if [[ "${MODE}" == "quadlet" ]] || (( REBUILD )); then
+            build_image "${s}" "${REBUILD}" || die "cannot start ${s} without its image"
+        fi
+    done
     if [[ "${MODE}" == "quadlet" ]]; then
         for s in "${svcs[@]}"; do
             say "start dna-${s}.service"; host systemctl --user start "dna-${s}.service"
@@ -516,7 +592,7 @@ cmd_up() {
             compose_run "${f[@]}" up -d dna-postgres
             ensure_databases "${svcs[@]}"
         fi
-        compose_run "${f[@]}" up -d
+        compose_run "${f[@]}" up -d --build
     fi
     undo "dna-stack down ${svcs[*]}"
 }
@@ -567,8 +643,51 @@ cmd_status() {
         else
             printf '%-11s %s\n' "${s}" "$(host "${RT}" inspect -f '{{.State.Status}}' "dna-${s}" 2>/dev/null || echo absent)"
         fi
+        if has_build "${s}"; then
+            if image_exists "${s}"; then say "            local image $(image_ref "${s}"): built"
+            else say "            local image $(image_ref "${s}"): not built yet (dna-stack build ${s}, or up builds it)"; fi
+        fi
     done
     say "ports (127.0.0.1): $(for s in $(selected); do printf '%s=%s ' "${s}" "$(host_port "${s}")"; done)"
+}
+
+cmd_build() {
+    local rebuild=0 yes=0 a s
+    local -a names=() cand=() chosen=()
+    for a in "$@"; do
+        case "${a}" in
+            --rebuild) rebuild=1 ;;
+            --yes|-y) yes=1 ;;
+            -*) die "unknown option ${a}" ;;
+            *) known "${a}" || die "unknown service '${a}' (see: dna-stack list)"
+               has_build "${a}" || die "'${a}' has no build context (it uses a registry image); local builds: $(build_services | tr '\n' ' ')"
+               names+=("${a}") ;;
+        esac
+    done
+    detect; need_selection
+    for s in $(selected); do has_build "${s}" && cand+=("${s}"); done
+    [[ "${#cand[@]}" -gt 0 || "${#names[@]}" -gt 0 ]] || { say "no set-up service needs a local build (set one up first: dna-stack setup --only connect,airflow,superset)"; return 0; }
+    if [[ "${#names[@]}" -gt 0 ]]; then
+        for s in "${names[@]}"; do printf '%s\n' "${cand[@]}" | grep -qx "${s}" || die "${s} is not set up (dna-stack setup --only ${s})"; done
+        chosen=("${names[@]}")
+    elif (( yes )); then chosen=("${cand[@]}")
+    elif [[ -t 0 ]]; then
+        say "Local images need network and can take several minutes each."
+        mapfile -t chosen < <(pick_from "Build which images? (nothing is selected by default)" "${cand[@]}")
+        [[ "${#chosen[@]}" -gt 0 ]] || { say "nothing chosen (name services, or pass --yes to build all: ${cand[*]})"; return 0; }
+    else
+        for s in "${cand[@]}"; do say "  ${s}: $(image_ref "${s}") $(image_exists "${s}" && echo built || echo 'not built')"; done
+        say "dry run: name services, or pass --yes to build all (needs network, can take minutes)"
+        return 0
+    fi
+    local failed=()
+    for s in "${chosen[@]}"; do
+        [[ -n "${s}" ]] || continue
+        if build_image "${s}" "${rebuild}"; then
+            ! is_running "${s}" || say "  ${s} is running on the old image: dna-stack down ${s} --yes, then dna-stack up ${s}"
+        else failed+=("${s}"); fi
+    done
+    [[ "${#failed[@]}" -eq 0 ]] || { say "failed: ${failed[*]}"; return 1; }
 }
 
 cmd_logs() {
@@ -642,6 +761,8 @@ cmd_lock() {
     local tmp; tmp=$(mktemp)
     while IFS='|' read -r name ref _; do
         if [[ "${name}" == \#* || -z "${name}" ]]; then printf '%s\n' "${name}${ref:+|${ref}}" >> "${tmp}"; continue; fi
+        # local builds (localhost/...) have no registry digest; their bases are pinned in the Containerfiles
+        if [[ "${ref}" == localhost/* ]]; then printf '%s|%s|\n' "${name}" "${ref}" >> "${tmp}"; continue; fi
         host "${RT}" pull -q "${ref}" >/dev/null
         local digest
         digest=$(host "${RT}" image inspect --format '{{index .RepoDigests 0}}' "${ref}" | sed 's/^.*@//')
@@ -678,8 +799,12 @@ svc_secrets() {
 cmd_remove() {
     parse_names "$@"
     detect
-    local vols=0 secs=0 e
-    for e in "${EXTRA[@]:-}"; do [[ "${e}" == "--volumes" ]] && vols=1; [[ "${e}" == "--secrets" ]] && secs=1; done
+    local vols=0 secs=0 imgs=0 e
+    for e in "${EXTRA[@]:-}"; do
+        [[ "${e}" == "--volumes" ]] && vols=1
+        [[ "${e}" == "--secrets" ]] && secs=1
+        [[ "${e}" == "--images" ]] && imgs=1
+    done
     local -a made=() CHOSEN=()
     local s
     for s in $(selected); do made+=("${s}"); done
@@ -705,6 +830,13 @@ cmd_remove() {
     local f
     for s in "${CHOSEN[@]}"; do for f in $(svc_files "${s}"); do is_ours "${f}" && files+=("${f}"); done; done
     printf '  %s\n' "${files[@]:-}"
+    local -a imgrefs=()
+    for s in "${CHOSEN[@]}"; do has_build "${s}" && imgrefs+=("$(image_ref "${s}")"); done
+    if [[ "${#imgrefs[@]}" -gt 0 ]]; then
+        say "  and the staged build contexts under ${STATE}/build for: ${CHOSEN[*]}"
+        if (( imgs )); then say "  and the locally built images: ${imgrefs[*]}"
+        else say "  (the locally built images ${imgrefs[*]} are kept; add --images to delete them)"; fi
+    fi
     (( ! secs )) || say "  and the secrets of: ${CHOSEN[*]}"
     (( ! vols )) || say "  and the data volumes of: ${CHOSEN[*]} (ALL DATA)"
     if (( ! YES )) && [[ ! -t 0 ]]; then say "dry run: pass --yes to do it"; return 0; fi
@@ -725,6 +857,10 @@ cmd_remove() {
     for s in "${CHOSEN[@]}"; do
         if (( secs )); then
             for f in $(svc_secrets "${s}"); do host podman secret rm "${f}" >/dev/null 2>&1 || true; done
+        fi
+        if has_build "${s}"; then
+            rm -rf "${STATE:?}/build/${s}"
+            (( ! imgs )) || host "${RT}" image rm "$(image_ref "${s}")" >/dev/null 2>&1 || true
         fi
         if (( vols )); then
             for f in $(svc_volumes "${s}"); do host "${RT}" volume rm "${f}" >/dev/null 2>&1 || true; done
@@ -777,6 +913,27 @@ cmd_check() { # static checks, no host access and no container runtime needed
         [[ "${ref}" =~ :[A-Za-z0-9._-]+$ && "${ref}" != *:latest ]] || fail "${name}: image '${ref}' must carry an explicit non-latest tag"
         [[ -z "${digest}" || "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]] || fail "${name}: bad digest '${digest}'"
     done < "${ROOT}/images.lock"
+    # local builds: every shipped build service has a context, every context belongs to a shipped service;
+    # each FROM is pinned by digest (a stage alias or scratch is fine); no secret-looking values inside
+    local d ctxn kw first rest ref
+    for n in $(build_services); do
+        grep -q "^${n}|localhost/dna-${n}:local|" "${ROOT}/images.lock" || fail "images.lock: ${n} must be localhost/dna-${n}:local"
+    done
+    for d in "${ROOT}"/build/*/; do
+        ctxn=$(basename "${d}")
+        shipped "${ctxn}" || fail "build/${ctxn}: not a shipped service in catalog.tsv"
+        [[ -f "${d}Containerfile" ]] || { fail "build/${ctxn}: no Containerfile"; continue; }
+        local -a aliases=()
+        while read -r kw first rest; do
+            [[ "${kw}" == FROM ]] || continue
+            ref=${first}
+            [[ "${ref}" != --* ]] || ref=${rest%% *}
+            if [[ "${ref}" == scratch ]] || printf '%s\n' "${aliases[@]:-}" | grep -qx "${ref}"; then :
+            elif [[ ! "${ref}" =~ @sha256:[0-9a-f]{64}$ ]]; then fail "build/${ctxn}: base '${ref}' is not pinned by sha256 digest"; fi
+            if [[ "${rest}" =~ [Aa][Ss][[:space:]]+([A-Za-z0-9_.-]+) ]]; then aliases+=("${BASH_REMATCH[1]}"); fi
+        done < "${d}Containerfile"
+        if grep -rIiE '(PASSWORD|SECRET|TOKEN|API_?KEY|PRIVATE KEY)[A-Za-z_]*[=:] *[^ $]' "${d}" >/dev/null; then fail "build/${ctxn}: looks like a secret value in the context"; fi
+    done
     DNA_STATE=${tmp}/state "${SELF}" render --out "${tmp}/q" --mode quadlet --all
     DNA_STATE=${tmp}/state "${SELF}" render --out "${tmp}/c" --mode compose --all
     for f in "${tmp}"/q/* "${tmp}"/c/*.yml "${tmp}"/c/.env; do
@@ -786,6 +943,13 @@ cmd_check() { # static checks, no host access and no container runtime needed
             fail "${f##*/}: looks like a secret value in a generated file"
         fi
     done
+    for n in $(build_services); do
+        grep -qh "^Image=localhost/dna-${n}:local$" "${tmp}"/q/dna-"${n}"*.container || fail "Quadlet files of ${n} must use Image=localhost/dna-${n}:local"
+        grep -q "^DNA_IMAGE_${n^^}=localhost/dna-${n}:local$" "${tmp}/c/.env" || fail "compose .env: ${n} must use localhost/dna-${n}:local"
+        # shellcheck disable=SC2016  # ${DNA_BUILD_ is literal text in the compose file
+        grep -q '^ *build: \${DNA_BUILD_'"${n^^}"'}$' "${tmp}/c/${n}.yml" || fail "compose file of ${n} has no build: context"
+    done
+    if grep -l '^AutoUpdate=' "${tmp}"/q/* 2>/dev/null | xargs -r grep -l 'Image=localhost/' >/dev/null; then fail "AutoUpdate is set on a local image"; fi
     if grep -h '^PublishPort=' "${tmp}"/q/* | grep -v '^PublishPort=127\.0\.0\.1:' >/dev/null; then fail "a Quadlet port is not bound to 127.0.0.1"; fi
     # shellcheck disable=SC2016  # the ${DNA_PORT_ text is literal
     if awk '/^ *ports:/ {on=1; next} on && /^ *- / {print; next} {on=0}' "${tmp}"/c/*.yml | grep -v '"127\.0\.0\.1:\${DNA_PORT_' >/dev/null; then
@@ -813,6 +977,7 @@ main() {
         list) cmd_list ;;
         setup) cmd_setup "$@" ;;
         up) cmd_up "$@" ;;
+        build) cmd_build "$@" ;;
         down) cmd_down "$@" ;;
         status) cmd_status ;;
         logs) cmd_logs "$@" ;;

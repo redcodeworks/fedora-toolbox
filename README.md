@@ -6,11 +6,12 @@ Ready-made development and gaming containers for [distrobox](https://distrobox.i
 |---|---|
 | [`fedora-toolbox`](fedora-toolbox/) | Development box: compilers and build tools, common `-devel` libraries, `uv`, `rustup`, `fish` (list: [`dev.txt`](fedora-toolbox/packages/dev.txt)) |
 | [`fedora-gaming`](fedora-gaming/) | Gaming box: Steam, gamescope, MangoHud, GameMode on Fedora's Mesa (list: [`gaming.txt`](fedora-gaming/packages/gaming.txt)) |
-| [`dna-toolbox`](dna-toolbox/) | Data, analytics and AI box: ROCm userspace for AMD GPUs, with Python and JVM data tooling, plus `dna-stack` to start lakehouse server containers (Postgres, SeaweedFS, Lakekeeper, Trino) on your host from the box; work in progress |
+| [`dna-toolbox`](dna-toolbox/) | Data, analytics and AI box: Python and JVM data tooling, GPU toolkits (ROCm or CUDA) installed on demand with `dna-gpu`, plus `dna-stack` to start lakehouse server containers (Postgres, SeaweedFS, Lakekeeper, Trino, and more) on your host from the box; the heavier services (Kafka Connect, Airflow, Superset) are built on your machine the first time you start them; work in progress |
 
 ## Requirements
 
 - [distrobox](https://distrobox.it) with podman (or docker)
+- An x86_64 (amd64) computer: the images are not built for other architectures such as Apple Silicon or ARM
 - Optional: [`cosign`](https://github.com/sigstore/cosign) to verify the images, [`just`](https://github.com/casey/just) to work on the repo
 
 ## Install and usage
@@ -20,7 +21,7 @@ distrobox create --name fedora-toolbox --image ghcr.io/redcodeworks/fedora-toolb
 distrobox enter fedora-toolbox
 ```
 
-Use the `fedora-gaming` image the same way. `:latest` is the current release; `latest-<YYYYMMDD>-<short sha>` pins a date; `:testing` is the preview. The images contain nothing personal, so a box works with your real home. Language managers such as SDKMAN and nvm are not included: install them inside the box.
+The images are built for x86_64 (amd64) hosts only. Use the `fedora-gaming` image the same way. `:latest` is the current release; `latest-<YYYYMMDD>-<short sha>` pins a date; `:testing` is the preview. The images contain nothing personal, so a box works with your real home. Language managers such as SDKMAN and nvm are not included: install them inside the box.
 
 To check a download:
 

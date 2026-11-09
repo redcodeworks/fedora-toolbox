@@ -5,9 +5,9 @@ lakekeeper|slice|postgres,seaweedfs|Lakekeeper Iceberg REST catalog (needs Postg
 trino|slice|lakekeeper|Trino 483 SQL engine with an Iceberg catalog on Lakekeeper
 valkey|later||Valkey 9 (Redis-compatible cache)
 kafka|slice||Apache Kafka 4.3.1, KRaft single node
-connect|slice|kafka,postgres|Kafka Connect with Debezium and the Iceberg sink (image dna-connect)
-airflow|slice|postgres|Apache Airflow 3.3, LocalExecutor, no DAGs baked in (image dna-airflow)
-superset|slice|postgres|Apache Superset with Postgres and Trino drivers (image dna-superset)
+connect|slice|kafka,postgres|Kafka Connect with Debezium and the Iceberg sink (built on first start)
+airflow|slice|postgres|Apache Airflow 3.3, LocalExecutor, no DAGs baked in (built on first start)
+superset|slice|postgres|Apache Superset with Postgres and Trino drivers (built on first start)
 qdrant|ai||Qdrant vector database
 mlflow|ai|postgres|MLflow tracking server
 openwebui|ai||Open WebUI for ollama

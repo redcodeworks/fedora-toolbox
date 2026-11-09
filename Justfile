@@ -54,6 +54,15 @@ test:
     tests/new-image.sh
     tests/dna-stack.sh
 
+# Build the dna-stack contexts (Connect, Airflow, Superset) with podman to catch a broken Containerfile; needs network, takes minutes
+[group('Image')]
+check-stack-builds:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for s in connect airflow superset; do
+        podman build -t "localhost/dna-${s}:check" "dna-toolbox/stack/build/${s}"
+    done
+
 # Open the release pull request from testing into main. Pass true to also wait for the required checks and merge it
 [group('Release')]
 release $merge="false":

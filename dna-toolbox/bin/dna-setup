@@ -42,6 +42,9 @@ while (( $# )); do
     shift
 done
 
+arch=$(uname -m)
+say "architecture: ${arch}"
+[[ "${arch}" == x86_64 ]] || say "note: the dna-toolbox images are x86_64 builds; other architectures are unsupported for now"
 say "Python ${DNA_PYTHON_VERSION} (uv-managed), venv ${VENV}"
 uv python install "${DNA_PYTHON_VERSION}"
 [[ -d "${VENV}" ]] || uv venv --python "${DNA_PYTHON_VERSION}" "${VENV}"

@@ -28,15 +28,6 @@ for d in $(image_dirs); do
     names+=("${n}")
     grep -qE '^FROM ' "${d}/Containerfile" || err "${d}/Containerfile has no FROM line"
     [[ -x "${d}/tests/smoke.sh" ]] || err "${d}/tests/smoke.sh missing or not executable"
-    # IMAGE_KIND=app (in <dir>/image.env): an application image of the dna stack (Connect, Airflow,
-    # Superset) built from its own Containerfile: no toolbox base, build.sh or package list required.
-    kind=$({ sed -n 's/^IMAGE_KIND=//p' "${d}/image.env" 2>/dev/null || true; } | tr -d "\"'" | head -n1)
-    if [[ "${kind}" == "app" ]]; then
-        if grep -rIiE 'bootc|ostree|rpm-ostree|kernel-core|bootc-image-builder' "${d}/Containerfile" >/dev/null; then
-            err "${d}: OS-image parts (bootc/ostree/kernel) found; this repo builds toolbox and app images only"
-        fi
-        continue
-    fi
     [[ -f "${d}/build_files/build.sh" ]] || err "${d}/build_files/build.sh missing"
     lists=("${d}"/packages/*.txt)
     [[ ${#lists[@]} -gt 0 ]] || err "${d}/packages/*.txt missing"

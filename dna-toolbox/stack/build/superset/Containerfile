@@ -1,0 +1,12 @@
+# Apache Superset with the Postgres and Trino drivers, for the dna stack. Built on the user's host by
+# `dna-stack build` (nothing publishes this image). Needs network: PyPI and the base-image registry.
+# The base image's virtual environment /app/.venv has no pip (it was built with uv), so the drivers go in with uv.
+# The base is pinned by digest (manifest list, resolved 2026-11-09, not signed upstream).
+
+# docker.io/apache/superset:6.1.0
+FROM docker.io/apache/superset:6.1.0@sha256:16b50bbef6648912a79e3293d418fefa743ce555d36c5af6b85d859119ed7f88
+
+USER root
+COPY requirements.txt /tmp/requirements.txt
+RUN uv pip install --python /app/.venv/bin/python -r /tmp/requirements.txt && rm /tmp/requirements.txt
+USER superset

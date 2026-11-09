@@ -2,12 +2,10 @@
 # One package or @group per line; blank lines and #-comments are ignored.
 # Anything nice to have but not essential goes in optional.txt (never here).
 
-# --- ROCm userspace (the host carries only the kernel amdgpu driver; /dev/kfd and /dev/dri are
-# passed into the box). Target GPU: RX 9070 XT (gfx1201, RDNA4). ---
-rocminfo
-rocm-smi
-rocm-hip
-rocm-opencl
+# --- GPU toolkits are NOT in the image: `dna-gpu rocm` / `dna-gpu cuda` install them on demand with dnf inside
+# the box and export the CLI tools to the host (see CLAUDE.md). dnf5-plugins gives `dnf config-manager addrepo`
+# (needed for NVIDIA's repository). ---
+dnf5-plugins
 
 # --- Python tooling: uv installs and manages the Pythons and venvs (never the system Python) ---
 uv
