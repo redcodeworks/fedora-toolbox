@@ -33,9 +33,47 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.event_name != 'schedule' }}
 
 jobs:
+  # A pull request from this repo's testing branch builds nothing itself: the push to testing already
+  # built, smoke-tested, published and signed the same commit, so this job waits for that push run and
+  # reports its result under the required check names (below). Pull requests from anywhere else keep
+  # the full plan and build.
+  mirror:
+    name: Wait for the testing push build
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'testing' }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 40
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Wait for the push run of this commit and take its result
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          started=$SECONDS
+          while :; do
+            run=$(gh api "repos/${REPO}/actions/workflows/build.yml/runs?head_sha=${SHA}&event=push&branch=testing" \
+              --jq '.workflow_runs | sort_by(.created_at) | last // empty | [.id, .status, .conclusion] | @tsv')
+            if [[ -z "${run}" ]]; then
+              (( SECONDS - started < 180 )) || { echo "::error::No push build found for ${SHA} on testing"; exit 1; }
+            else
+              read -r id status conclusion <<<"${run}"
+              echo "push run ${id}: ${status} ${conclusion}"
+              if [[ "${status}" == "completed" ]]; then
+                [[ "${conclusion}" == "success" ]] || { echo "::error::The push build of ${SHA} ended ${conclusion}"; exit 1; }
+                exit 0
+              fi
+            fi
+            sleep 20
+          done
+
   plan:
     name: Plan builds
-    runs-on: ubuntu-latest
+    if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'testing') }}
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       packages: read  # the promote decision looks up published testing tags
@@ -107,30 +145,36 @@ jobs:
   # was published because this was a pull request).
   result:
     name: Build and push image
-    needs: [plan, images]
+    needs: [plan, images, mirror]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - name: Every planned image built
         env:
           PLAN: ${{ needs.plan.result }}
           IMAGES: ${{ needs.images.result }}
+          MIRROR: ${{ needs.mirror.result }}
         run: |
-          echo "plan: ${PLAN}, images: ${IMAGES}"
+          echo "plan: ${PLAN}, images: ${IMAGES}, mirror: ${MIRROR}"
+          # pull request from testing: the result is the push build's, nothing was planned here
+          if [[ "${MIRROR}" != "skipped" ]]; then [[ "${MIRROR}" == "success" ]] || { echo "::error::The testing push build did not succeed"; exit 1; }; exit 0; fi
           [[ "${PLAN}" == "success" ]] || { echo "::error::Planning failed"; exit 1; }
           [[ "${IMAGES}" == "success" || "${IMAGES}" == "skipped" ]] || { echo "::error::An image build failed or was cancelled"; exit 1; }
 
   signed:
     name: Sign and verify images
-    needs: [plan, images]
+    needs: [plan, images, mirror]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - name: Every published image signed and verified (or nothing published)
         env:
           PLAN: ${{ needs.plan.result }}
           IMAGES: ${{ needs.images.result }}
+          MIRROR: ${{ needs.mirror.result }}
         run: |
-          echo "plan: ${PLAN}, images: ${IMAGES}"
+          echo "plan: ${PLAN}, images: ${IMAGES}, mirror: ${MIRROR}"
+          # pull request from testing: the result is the push build's, nothing was planned here
+          if [[ "${MIRROR}" != "skipped" ]]; then [[ "${MIRROR}" == "success" ]] || { echo "::error::The testing push build did not succeed"; exit 1; }; exit 0; fi
           [[ "${PLAN}" == "success" ]] || { echo "::error::Planning failed"; exit 1; }
           [[ "${IMAGES}" == "success" || "${IMAGES}" == "skipped" ]] || { echo "::error::An image build, signing or verification failed or was cancelled"; exit 1; }

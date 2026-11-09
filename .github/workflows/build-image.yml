@@ -46,7 +46,7 @@ jobs:
   promote:
     name: Promote tested image
     if: inputs.mode == 'promote'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
 
     permissions:
       contents: read
@@ -63,10 +63,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install Cosign
-        uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
-        with:
-          # be careful when upgrading major versions
-          cosign-release: 'v3.1.4'
+        uses: ./.github/actions/install-cosign
 
       - name: Verify, then retag the tested image
         id: retag
@@ -239,7 +236,7 @@ jobs:
     name: Sign and verify image
     needs: [promote, build_push]
     if: ${{ !cancelled() && (needs.promote.outputs.promoted == 'true' || needs.build_push.outputs.publish == 'true') }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     environment: signing
 
     permissions:
@@ -258,10 +255,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install Cosign
-        uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
-        with:
-          # be careful when upgrading major versions
-          cosign-release: 'v3.1.4'
+        uses: ./.github/actions/install-cosign
 
       # A promoted image is already signed (its digest was verified before retagging); only a fresh build is signed
       - name: Sign every pushed digest
