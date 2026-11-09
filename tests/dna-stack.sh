@@ -318,3 +318,26 @@ STUB
     [[ ! -e "${tmp}/repos/cuda-fedora45.repo" ]] || t "the repo file dna-gpu created was not removed"
     echo "ok   dna-gpu rocm and cuda profiles (stubbed dnf, rpm, distrobox-export)"
 ) || exit 1
+
+# Architecture: x86_64 only. A stubbed uname; on aarch64 dna-gpu stops before any dnf, rpm or distrobox-export call.
+(
+    tmp=$(mktemp -d); trap 'rm -rf "${tmp}"' EXIT
+    mkdir -p "${tmp}/bin"; calls="${tmp}/calls"; : > "${calls}"
+    for c in dnf rpm distrobox-export; do printf '#!/usr/bin/env bash\necho "%s $*" >> "%s"\n' "${c}" "${calls}" > "${tmp}/bin/${c}"; done
+    printf '#!/usr/bin/env bash\necho aarch64\n' > "${tmp}/bin/uname"
+    chmod +x "${tmp}/bin"/*
+    : > "${tmp}/containerenv"
+    t() { echo "FAIL $*" >&2; exit 1; }
+    arm() { env PATH="${tmp}/bin:${PATH}" HOME="${tmp}/home" DNA_GPU_STATE="${tmp}/state" DNA_GPU_CONTAINERENV="${tmp}/containerenv" DNA_GPU_PICKER=plain "$@"; }
+    for prof in rocm cuda; do
+        o=$(arm "${here}/dna-toolbox/bin/dna-gpu" "${prof}" --yes </dev/null 2>&1) && t "dna-gpu ${prof} succeeded on aarch64"
+        grep -q 'unsupported architecture aarch64' <<<"${o}" || t "no architecture message for ${prof}"
+        grep -q 'Apple GPUs' <<<"${o}" || t "no reason given for ${prof}"
+    done
+    [[ ! -s "${calls}" ]] || t "dnf, rpm or distrobox-export was called on aarch64: $(cat "${calls}")"
+    o=$(arm "${here}/dna-toolbox/bin/dna-gpu" help </dev/null); grep -q 'dna-gpu rocm' <<<"${o}" || t "help failed on aarch64"
+    o=$(arm "${here}/dna-toolbox/bin/dna-gpu" status </dev/null 2>&1); grep -q 'architecture: aarch64 (unsupported' <<<"${o}" || t "status does not print the architecture"
+    o=$(arm env DNA_VERSIONS_FILE="${here}/dna-toolbox/versions.env" DNA_DATA_DIR="${tmp}/data" "${here}/dna-toolbox/bin/dna-doctor" 2>&1 </dev/null || true)
+    grep -q 'architecture: aarch64' <<<"${o}" && grep -q 'x86_64 builds' <<<"${o}" || t "dna-doctor lacks the architecture notice"
+    echo "ok   architecture checks (aarch64 stops dna-gpu before any package call)"
+) || exit 1

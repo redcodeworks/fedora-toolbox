@@ -59,6 +59,19 @@ TXT
 }
 
 use_gum() { [[ "${DNA_GPU_PICKER:-}" != plain ]] && command -v gum >/dev/null 2>&1; }   # DNA_GPU_PICKER=plain: no gum (tests)
+# The images and the package sources used here are x86_64 only (unsupported elsewhere for now). uname only: no rpm
+# or dnf call, so the check runs before anything touches the package system. Under qemu-user emulation uname
+# reports x86_64 even on an ARM host, so emulation is not detected (known limitation, unverified).
+ARCH=$(uname -m 2>/dev/null || echo unknown)
+need_x86_64() { # profile
+    [[ "${ARCH}" == x86_64 ]] && return 0
+    say "dna-gpu ${1}: unsupported architecture ${ARCH}. Nothing was changed."
+    say "  Fedora's ROCm packages and NVIDIA's CUDA repository used here are x86_64 only, and ROCm and CUDA do not"
+    say "  support Apple GPUs. The dna-toolbox images are x86_64 builds; other architectures are unsupported for now."
+    say "  On ARM use the CPU, or Vulkan where the host driver provides it. PyTorch from PyPI (dna-setup --torch)"
+    say "  needs no system toolkit."
+    exit 1
+}
 in_box() { [[ -e "${CONTAINERENV}" || -n "${CONTAINER_ID:-}" ]]; }
 need_box() {
     in_box && return 0
@@ -181,6 +194,7 @@ cmd_rocm() {
         esac
         shift
     done
+    need_x86_64 rocm
     need_box rocm
     need_cmd dnf; need_cmd rpm
     say "ROCm profile: base set ${ROCM_BASE[*]} (Fedora packages, inside this box only)"
@@ -240,6 +254,7 @@ cmd_cuda() {
         esac
         shift
     done
+    need_x86_64 cuda
     need_box cuda
     need_cmd dnf; need_cmd rpm
     local nn url repofile key
@@ -309,6 +324,7 @@ cmd_cuda() {
 cmd_status() {
     need_box status
     local prof name path
+    say "== architecture: ${ARCH}$([[ "${ARCH}" == x86_64 ]] || echo " (unsupported: the images are x86_64 builds)")"
     say "== devices"
     # shellcheck disable=SC2012  # a plain listing for the user, names are fixed
     ls -l /dev/kfd /dev/dri /dev/nvidiactl 2>&1 | sed 's/^/  /'

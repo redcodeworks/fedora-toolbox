@@ -11,6 +11,7 @@ Ready-made development and gaming containers for [distrobox](https://distrobox.i
 ## Requirements
 
 - [distrobox](https://distrobox.it) with podman (or docker)
+- An x86_64 (amd64) computer: the images are not built for other architectures such as Apple Silicon or ARM
 - Optional: [`cosign`](https://github.com/sigstore/cosign) to verify the images, [`just`](https://github.com/casey/just) to work on the repo
 
 ## Install and usage
@@ -20,7 +21,7 @@ distrobox create --name fedora-toolbox --image ghcr.io/redcodeworks/fedora-toolb
 distrobox enter fedora-toolbox
 ```
 
-Use the `fedora-gaming` image the same way. `:latest` is the current release; `latest-<YYYYMMDD>-<short sha>` pins a date; `:testing` is the preview. The images contain nothing personal, so a box works with your real home. Language managers such as SDKMAN and nvm are not included: install them inside the box.
+The images are built for x86_64 (amd64) hosts only. Use the `fedora-gaming` image the same way. `:latest` is the current release; `latest-<YYYYMMDD>-<short sha>` pins a date; `:testing` is the preview. The images contain nothing personal, so a box works with your real home. Language managers such as SDKMAN and nvm are not included: install them inside the box.
 
 To check a download:
 

@@ -15,6 +15,10 @@ fail() { printf 'FAIL  %s\n' "$*"; bad=1; }
 
 echo "== pins: DBR ${DNA_DBR_VERSION}, Spark ${DNA_SPARK_VERSION}, Scala ${DNA_SCALA_VERSION}, Java ${DNA_JAVA_VERSION}, Python ${DNA_PYTHON_VERSION}, Hadoop ${DNA_HADOOP_VERSION}, Delta ${DNA_DELTA_VERSION}"
 
+arch=$(uname -m)
+echo "== architecture: ${arch}"
+[[ "${arch}" == x86_64 ]] && ok "x86_64" || warn "the dna-toolbox images are x86_64 builds; other architectures are unsupported for now"
+
 echo "== GPU (no system toolkit is required; install one on demand with dna-gpu rocm|cuda)"
 for dev in /dev/kfd /dev/dri; do
     [[ -e "${dev}" ]] && ok "${dev} is visible" || warn "${dev} is not visible (fine for NVIDIA or CPU-only; for AMD the box needs the GPU devices)"
