@@ -1,0 +1,7 @@
+# Optional packages for dna-toolbox. Installed one by one AFTER core.txt; a package that cannot be
+# installed only logs a warning and never fails the build, and smoke.sh never requires them. This
+# is the only place for anything outside Fedora's official repos (and only where there is no
+# alternative, with Kevin's decision first). Same format as core.txt.
+#
+# Placeholder until the research is in (a list must not be empty):
+jq

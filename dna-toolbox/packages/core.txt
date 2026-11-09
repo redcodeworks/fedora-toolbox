@@ -1,0 +1,18 @@
+# Critical packages for dna-toolbox, one dnf5 install; the build fails if any is missing.
+# One package or @group per line; blank lines and #-comments are ignored.
+# Official Fedora packages only (plus what the base already configures). Everything that is
+# nice to have but not essential goes in optional.txt instead (never here).
+#
+# Scaffold: only entries already proven by the fedora-toolbox build are listed. The rest of the
+# wanted contents (Jupyter, Spark/Hadoop pieces, conda-like manager, data clients) are added after
+# their Fedora package names are confirmed; none are guessed here.
+
+# --- ROCm userspace (the host carries only the kernel amdgpu driver; /dev/kfd and /dev/dri are
+# passed into the box). Target GPU: RX 9070 XT (gfx1201, RDNA4). ---
+rocminfo
+rocm-smi
+rocm-hip
+rocm-opencl
+
+# --- Python tooling stays in venvs: uv only, nothing installed globally with pip ---
+uv

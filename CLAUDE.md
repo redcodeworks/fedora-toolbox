@@ -54,6 +54,15 @@ A gaming toolbox, published as `ghcr.io/redcodeworks/fedora-gaming` (tags as for
 - Smoke test (`fedora-gaming/tests/smoke.sh`): the gaming packages, `steam` and `gamescope` on PATH, `mesa-vulkan-drivers` x86_64 and i686 at the same version, no Terra package or repo, `libvulkan_radeon` for both architectures, no dnf logs or `/root` residue, nothing user-specific.
 - Unverified: gamescope's file capability (`cap_sys_nice`) inside a container; the exact `steam` dependency set beyond what dnf resolves (check the transaction in the CI build log); behaviour on a real host with a GPU. The image expects an isolated home (the host definition is owned by the octarine-os repo) and the `steam-devices` udev rules on the host.
 
+## dna-toolbox (scaffold, 2026-11-09)
+
+Data, analytics and AI development box, published as `ghcr.io/redcodeworks/dna-toolbox` (same tags and CI as every image). Wanted by Kevin: ROCm (target GPU RX 9070 XT, gfx1201, RDNA4), ollama, Hadoop, Spark, Jupyter, conda-like environments. The host carries no ROCm; a ROCm container needs only the kernel amdgpu driver plus `/dev/kfd` and `/dev/dri` passed in, so the box carries the userspace (the host definition is owned by octarine-os).
+
+- Two package tiers: `dna-toolbox/packages/core.txt` is installed strictly (a missing package fails the build and smoke.sh checks it); `dna-toolbox/packages/optional.txt` is installed one package at a time after core, a failure only warns, and smoke.sh never requires it. Out-of-tree repos, if Kevin ever approves one, are allowed only for optional entries. The scaffold has only names already proven by the fedora-toolbox build (ROCm `rocminfo`, `rocm-smi`, `rocm-hip`, `rocm-opencl`, `uv`; `jq` as the placeholder optional line, since lint rejects empty lists).
+- Runtime installs, not in the image: SDKMAN (JVM tools such as Spark and Hadoop, if not in Fedora) and anything via `uv`/`pip` in venvs; no `curl | sh` except rustup and SDKMAN.
+- Not built or tested yet: the contents beyond the scaffold wait for researched, sourced package names; do not add guessed names.
+- Servers (Postgres, Kafka, Trino, ...) stay out: they run as rootless Quadlet containers on the host; a toolbox is for clients.
+
 ## Package policy
 
 Official Fedora packages only, plus whatever the base already configures (Terra). No COPR, vendor repos or out-of-tree RPMs without Kevin's decision (put it under `Needs from hub:`). Packages already in the base are no-ops. `@group` entries: dnf5 accepts `@id` arguments to `dnf5 install` (mandatory and default members, not optional); the build script passes lines through unchanged, so the form is `@c-development`.

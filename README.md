@@ -6,6 +6,7 @@ Ready-made development and gaming containers for [distrobox](https://distrobox.i
 |---|---|
 | [`fedora-toolbox`](fedora-toolbox/) | Development box: compilers and build tools, common `-devel` libraries, `uv`, `rustup`, `fish` (list: [`dev.txt`](fedora-toolbox/packages/dev.txt)) |
 | [`fedora-gaming`](fedora-gaming/) | Gaming box: Steam, gamescope, MangoHud, GameMode on Fedora's Mesa (list: [`gaming.txt`](fedora-gaming/packages/gaming.txt)) |
+| [`dna-toolbox`](dna-toolbox/) | Data, analytics and AI box: ROCm userspace for AMD GPUs, with Python and JVM data tooling (work in progress) |
 
 ## Requirements
 
