@@ -18,9 +18,6 @@ check() { # description command...
     if "$@" >/dev/null 2>&1; then ok "${d}"; else bad "${d}"; fi
 }
 
-build="${src}/.github/workflows/build.yml"
-image="${src}/.github/workflows/build-image.yml"
-
 if ! python3 -I -c 'import yaml' 2>/dev/null; then
     echo "SKIP the workflow checks: python3 has no PyYAML"
     out=""
