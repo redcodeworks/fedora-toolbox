@@ -946,6 +946,7 @@ cmd_check() { # static checks, no host access and no container runtime needed
     for n in $(build_services); do
         grep -qh "^Image=localhost/dna-${n}:local$" "${tmp}"/q/dna-"${n}"*.container || fail "Quadlet files of ${n} must use Image=localhost/dna-${n}:local"
         grep -q "^DNA_IMAGE_${n^^}=localhost/dna-${n}:local$" "${tmp}/c/.env" || fail "compose .env: ${n} must use localhost/dna-${n}:local"
+        # shellcheck disable=SC2016  # ${DNA_BUILD_ is literal text in the compose file
         grep -q '^ *build: \${DNA_BUILD_'"${n^^}"'}$' "${tmp}/c/${n}.yml" || fail "compose file of ${n} has no build: context"
     done
     if grep -l '^AutoUpdate=' "${tmp}"/q/* 2>/dev/null | xargs -r grep -l 'Image=localhost/' >/dev/null; then fail "AutoUpdate is set on a local image"; fi

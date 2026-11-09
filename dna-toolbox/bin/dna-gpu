@@ -98,6 +98,7 @@ dnf_install() { # packages...
 gpu_devices() {
     local ok=1 d
     for d in /dev/kfd /dev/dri; do [[ -e "${d}" ]] || ok=0; done
+    # shellcheck disable=SC2012  # a plain listing for the user, names are fixed
     ls -l /dev/kfd /dev/dri 2>&1 | sed 's/^/    /'
     say "    groups: $(id -nG 2>/dev/null)"
     if (( ! ok )); then
@@ -309,14 +310,16 @@ cmd_status() {
     need_box status
     local prof name path
     say "== devices"
+    # shellcheck disable=SC2012  # a plain listing for the user, names are fixed
     ls -l /dev/kfd /dev/dri /dev/nvidiactl 2>&1 | sed 's/^/  /'
     say "== ROCm"
     local p; for p in "${ROCM_BASE[@]}"; do if pkg_installed "${p}"; then say "  installed  ${p}"; else say "  absent     ${p}"; fi; done
     say "== CUDA"
     local c; c=$(rpm -qa --qf '%{NAME}\n' 'cuda-toolkit*' 2>/dev/null | sort -u)
     say "  toolkit packages: ${c:-none}"
-    command -v nvcc >/dev/null 2>&1 && say "  nvcc in the box: $(command -v nvcc)" || say "  nvcc not in the box PATH"
-    command -v nvidia-smi >/dev/null 2>&1 && say "  nvidia-smi: present" || say "  nvidia-smi: missing (the driver comes from the host; create the box with --nvidia)"
+    if command -v nvcc >/dev/null 2>&1; then say "  nvcc in the box: $(command -v nvcc)"; else say "  nvcc not in the box PATH"; fi
+    if command -v nvidia-smi >/dev/null 2>&1; then say "  nvidia-smi: present"
+    else say "  nvidia-smi: missing (the driver comes from the host; create the box with --nvidia)"; fi
     say "== exported wrappers (${EXPORT_DIR})"
     for prof in rocm cuda; do
         [[ -f "${STATE}/${prof}.exports" ]] || continue

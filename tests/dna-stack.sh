@@ -22,6 +22,7 @@ echo "ok   dna-toolbox versions.env, java package and download pins"
 # replaced by a stub (no runtime, no real host command is ever run).
 (
     tmp=$(mktemp -d); trap 'rm -rf "${tmp}"' EXIT
+    # shellcheck disable=SC2030  # each block is its own subshell on purpose
     export DNA_STATE="${tmp}/state" DNA_QUADLET_DIR="${tmp}/q" DNA_STACK_ROOT="${here}/dna-toolbox/stack"
     # shellcheck source=/dev/null
     . "${here}/dna-toolbox/stack/bin/dna-stack"
@@ -88,6 +89,7 @@ echo "ok   dna-toolbox versions.env, java package and download pins"
 # and built on the host. The host runtime is a recording stub; nothing is built.
 (
     tmp=$(mktemp -d); trap 'rm -rf "${tmp}"' EXIT
+    # shellcheck disable=SC2030,SC2031  # each block is its own subshell on purpose
     export DNA_STATE="${tmp}/state" DNA_QUADLET_DIR="${tmp}/q" DNA_STACK_ROOT="${here}/dna-toolbox/stack"
     # shellcheck source=/dev/null
     . "${here}/dna-toolbox/stack/bin/dna-stack"
@@ -195,6 +197,7 @@ echo "ok   dna-toolbox versions.env, java package and download pins"
 ) || exit 1
 
 # nothing refers to the removed published images
+# shellcheck disable=SC2016  # the backticks are literal in the pattern
 stale=$(grep -rInE 'ghcr\.io/redcodeworks/dna-(connect|airflow|superset)|^\| \[`dna-(connect|airflow|superset)`' "${here}" \
     --exclude-dir=.git --exclude=CLAUDE.md --exclude=CLAUDE.local.md --exclude=dna-stack.sh || true)
 [[ -z "${stale}" ]] || { echo "FAIL references to removed images:"$'\n'"${stale}" >&2; exit 1; }
