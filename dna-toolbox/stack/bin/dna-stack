@@ -143,6 +143,10 @@ quadlet_files() {
         seaweedfs) echo "dna-seaweedfs.container dna-seaweedfs-data.volume" ;;
         lakekeeper) echo "dna-lakekeeper.container dna-lakekeeper-migrate.container" ;;
         trino) echo "dna-trino.container" ;;
+        kafka) echo "dna-kafka.container dna-kafka-data.volume" ;;
+        connect) echo "dna-connect.container" ;;
+        airflow) echo "dna-airflow-migrate.container dna-airflow-apiserver.container dna-airflow-scheduler.container dna-airflow-dag-processor.container dna-airflow-logs.volume" ;;
+        superset) echo "dna-superset-init.container dna-superset.container" ;;
     esac
 }
 
@@ -174,7 +178,17 @@ render_compose() { # out-dir, services...
     } > "${out}/.env"
 }
 
+render_support_apps() { # directories and config the app services mount
+    local sel=" $* "
+    if [[ "${sel}" == *" airflow "* ]]; then mkdir -p "${STATE}/airflow/dags" "${STATE}/airflow/lakehouse"; fi
+    if [[ "${sel}" == *" superset "* ]]; then
+        mkdir -p "${STATE}/superset"
+        cp "${ROOT}/templates/superset_config.py" "${STATE}/superset/superset_config.py"
+    fi
+}
+
 render_support() { # trino catalog (both modes); holds the S3 keys, so mode 600 (placeholders when none exist yet)
+    render_support_apps "$@"
     if [[ " $* " == *" trino "* ]]; then
         local ak=EXAMPLE_KEY sk=EXAMPLE_SECRET
         if [[ -f "${STATE}/env/s3.env" ]]; then
@@ -206,47 +220,61 @@ secret_create() {
       host podman secret create --label dna-stack=1 "$1" "${f}" >/dev/null )
 }
 
+# Generated values and where they live. The Postgres password is also kept in ${STATE}/env/postgres.pw
+# (mode 600) because a podman secret cannot be read back, and services added later need it for their URLs.
 ensure_secrets() { # services...
-    local pw="" sel=" $* "
+    local sel=" $* " pw ak sk
+    ( umask 077; mkdir -p "${STATE}/env" )
+    if [[ "${sel}" =~ \ (postgres|lakekeeper|airflow|superset)\  ]]; then
+        if [[ ! -f "${STATE}/env/postgres.pw" ]]; then ( umask 077; rand > "${STATE}/env/postgres.pw" ); say "  created ${STATE}/env/postgres.pw (mode 600)"; fi
+        pw=$(cat "${STATE}/env/postgres.pw")
+    fi
     if [[ "${sel}" == *" seaweedfs "* && ! -f "${STATE}/env/s3.env" ]]; then
-        local ak sk
         ak=$(rand); sk=$(rand)
-        ( umask 077; mkdir -p "${STATE}/env"
+        ( umask 077
           printf 'S3_ACCESS_KEY=%s\nS3_SECRET_KEY=%s\n' "${ak}" "${sk}" > "${STATE}/env/s3.env"
           printf '{"identities":[{"name":"dna","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Admin","Read","Write","List","Tagging"]}]}\n' "${ak}" "${sk}" > "${STATE}/env/seaweedfs-s3.json" )
         say "  created S3 credentials in ${STATE}/env (mode 600)"
     fi
+    local fernet pgurl="postgres://dna:${pw:-}@dna-postgres:5432" pyurl="postgresql+psycopg2://dna:${pw:-}@dna-postgres:5432"
+    fernet=$(head -c 32 /dev/urandom | base64 | tr '+/' '-_')
     if [[ "${MODE}" == "quadlet" ]]; then
-        if [[ "${sel}" == *" postgres "* ]] && ! secret_exists dna-postgres-password; then
-            pw=$(rand); secret_create dna-postgres-password "${pw}"
-            say "  created secret dna-postgres-password"; undo "podman secret rm dna-postgres-password"
-        fi
-        if [[ "${sel}" == *" lakekeeper "* ]]; then
-            secret_exists dna-lakekeeper-key || { secret_create dna-lakekeeper-key "$(rand)"; say "  created secret dna-lakekeeper-key"; }
-            if ! secret_exists dna-lakekeeper-pgurl; then
-                [[ -n "${pw}" ]] || die "secret dna-lakekeeper-pgurl is missing and the Postgres password cannot be read back; run 'dna-stack remove --yes --secrets' and set up again"
-                secret_create dna-lakekeeper-pgurl "postgres://dna:${pw}@dna-postgres:5432/lakekeeper"
-                say "  created secret dna-lakekeeper-pgurl"
-            fi
-        fi
+        local name value
+        while IFS='|' read -r name value; do
+            [[ -n "${name}" ]] || continue
+            secret_exists "${name}" || { secret_create "${name}" "${value}"; say "  created secret ${name}"; }
+        done < <(
+            [[ "${sel}" == *" postgres "* ]] && printf 'dna-postgres-password|%s\n' "${pw}"
+            [[ "${sel}" == *" lakekeeper "* ]] && printf 'dna-lakekeeper-key|%s\ndna-lakekeeper-pgurl|%s/lakekeeper\n' "$(rand)" "${pgurl}"
+            [[ "${sel}" == *" airflow "* ]] && printf 'dna-airflow-sqlconn|%s/airflow\ndna-airflow-fernet|%s\ndna-airflow-jwt|%s\n' "${pyurl}" "${fernet}" "$(rand)"
+            [[ "${sel}" == *" superset "* ]] && printf 'dna-superset-secret-key|%s\ndna-superset-dburi|%s/superset\n' "$(rand)" "${pyurl}"
+            true)
     else
-        umask 077
-        mkdir -p "${STATE}/env"
-        if [[ "${sel}" == *" postgres "* && ! -f "${STATE}/env/postgres.env" ]]; then
-            printf 'POSTGRES_PASSWORD=%s\n' "$(rand)" > "${STATE}/env/postgres.env"
-            say "  created ${STATE}/env/postgres.env (mode 600)"
-        fi
-        if [[ "${sel}" == *" lakekeeper "* && ! -f "${STATE}/env/lakekeeper.env" ]]; then
-            [[ -f "${STATE}/env/postgres.env" ]] || die "lakekeeper needs ${STATE}/env/postgres.env (select postgres too)"
-            pw=$(sed -n 's/^POSTGRES_PASSWORD=//p' "${STATE}/env/postgres.env")
-            {
-                printf 'LAKEKEEPER__PG_DATABASE_URL_READ=postgres://dna:%s@dna-postgres:5432/lakekeeper\n' "${pw}"
-                printf 'LAKEKEEPER__PG_DATABASE_URL_WRITE=postgres://dna:%s@dna-postgres:5432/lakekeeper\n' "${pw}"
-                printf 'LAKEKEEPER__PG_ENCRYPTION_KEY=%s\n' "$(rand)"
-            } > "${STATE}/env/lakekeeper.env"
-            say "  created ${STATE}/env/lakekeeper.env (mode 600)"
-        fi
+        ( umask 077
+          if [[ "${sel}" == *" postgres "* && ! -f "${STATE}/env/postgres.env" ]]; then printf 'POSTGRES_PASSWORD=%s\n' "${pw}" > "${STATE}/env/postgres.env"; fi
+          if [[ "${sel}" == *" lakekeeper "* && ! -f "${STATE}/env/lakekeeper.env" ]]; then
+              printf 'LAKEKEEPER__PG_DATABASE_URL_READ=%s/lakekeeper\nLAKEKEEPER__PG_DATABASE_URL_WRITE=%s/lakekeeper\nLAKEKEEPER__PG_ENCRYPTION_KEY=%s\n' "${pgurl}" "${pgurl}" "$(rand)" > "${STATE}/env/lakekeeper.env"
+          fi
+          if [[ "${sel}" == *" airflow "* && ! -f "${STATE}/env/airflow.env" ]]; then
+              printf 'AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=%s/airflow\nAIRFLOW__CORE__FERNET_KEY=%s\nAIRFLOW__API_AUTH__JWT_SECRET=%s\n' "${pyurl}" "${fernet}" "$(rand)" > "${STATE}/env/airflow.env"
+          fi
+          if [[ "${sel}" == *" superset "* && ! -f "${STATE}/env/superset.env" ]]; then
+              printf 'SUPERSET_SECRET_KEY=%s\nSUPERSET_DB_URI=%s/superset\n' "$(rand)" "${pyurl}" > "${STATE}/env/superset.env"
+          fi )
+        say "  env files under ${STATE}/env (mode 600)"
     fi
+}
+
+# Databases the services need inside the shared Postgres (created after it is up; safe to repeat)
+ensure_databases() { # services...
+    local sel=" $* " db i
+    for db in airflow superset; do
+        [[ "${sel}" == *" ${db} "* ]] || continue
+        for i in $(seq 1 30); do host "${RT}" exec dna-postgres pg_isready -U dna -q 2>/dev/null && break; sleep 2; done
+        host "${RT}" exec dna-postgres psql -U dna -d lakekeeper -tAc "SELECT 1 FROM pg_database WHERE datname='${db}'" | grep -q 1 \
+            || host "${RT}" exec dna-postgres psql -U dna -d lakekeeper -c "CREATE DATABASE ${db}" >/dev/null
+        say "  database ${db} ready"
+    done
 }
 
 # ---------------------------------------------------------------- commands
@@ -267,6 +295,7 @@ dna-stack: lakehouse and AI server containers on the host, driven from the toolb
                                `down` warns about services that depend on the ones you stop
   logs [service] [--follow]    recent logs
   bootstrap                    after `up`: bootstrap Lakekeeper, create the S3 bucket and the first warehouse
+  superset-admin               after `up`: create the first Superset admin (generated password in the state dir)
   lock [--root]                resolve the image digests into images.lock (state dir, or the repo copy with --root)
   remove [service...] [--yes] [--volumes] [--secrets]
                                checklist or names; dry run without --yes or a terminal; removes only what this tool
@@ -479,9 +508,14 @@ cmd_up() {
     if [[ "${MODE}" == "quadlet" ]]; then
         for s in "${svcs[@]}"; do
             say "start dna-${s}.service"; host systemctl --user start "dna-${s}.service"
+            [[ "${s}" != "postgres" ]] || ensure_databases "${svcs[@]}"
         done
     else
         local -a f; mapfile -t f < <(compose_files "${svcs[@]}")
+        if printf '%s\n' "${svcs[@]}" | grep -qx postgres; then
+            compose_run "${f[@]}" up -d dna-postgres
+            ensure_databases "${svcs[@]}"
+        fi
         compose_run "${f[@]}" up -d
     fi
     undo "dna-stack down ${svcs[*]}"
@@ -585,6 +619,20 @@ cmd_bootstrap() {
     undo "dna-stack remove --yes --volumes"
 }
 
+# First Superset admin: the password is generated, kept in a mode 600 file (never printed) and passed to
+# `superset fab create-admin` through the container's environment. UNVERIFIED: not run.
+cmd_superset_admin() {
+    detect
+    is_selected superset || die "superset is not set up"
+    local pwfile="${STATE}/env/superset-admin.pw"
+    if [[ ! -f "${pwfile}" ]]; then ( umask 077; rand > "${pwfile}" ); fi
+    # shellcheck disable=SC2016  # $DNA_ADMIN_PW must expand inside the container, not here
+    host "${RT}" exec -e "DNA_ADMIN_PW=$(cat "${pwfile}")" dna-superset sh -c \
+        'superset fab create-admin --username admin --firstname Admin --lastname User --email admin@localhost --password "$DNA_ADMIN_PW"'
+    say "admin user created; the password is in ${pwfile} (mode 600)"
+    undo "rm ${pwfile} (the user stays in Superset's database until the volume or database is removed)"
+}
+
 cmd_lock() {
     local target
     target=${STATE}/images.lock
@@ -613,10 +661,19 @@ svc_files() { # generated files of one service
     else
         echo "${STATE}/compose/${s}.yml"
         [[ "${s}" == "trino" ]] && echo "${STATE}/trino/catalog/iceberg.properties"
+        [[ "${s}" == "superset" ]] && echo "${STATE}/superset/superset_config.py"
+        true
     fi
 }
-svc_volumes() { case "$1" in postgres) echo dna-postgres-data ;; seaweedfs) echo dna-seaweedfs-data ;; esac; }
-svc_secrets() { case "$1" in postgres) echo dna-postgres-password ;; lakekeeper) echo "dna-lakekeeper-key dna-lakekeeper-pgurl" ;; esac; }
+svc_volumes() { case "$1" in postgres) echo dna-postgres-data ;; seaweedfs) echo dna-seaweedfs-data ;; kafka) echo dna-kafka-data ;; airflow) echo dna-airflow-logs ;; esac; }
+svc_secrets() {
+    case "$1" in
+        postgres) echo dna-postgres-password ;;
+        lakekeeper) echo "dna-lakekeeper-key dna-lakekeeper-pgurl" ;;
+        airflow) echo "dna-airflow-sqlconn dna-airflow-fernet dna-airflow-jwt" ;;
+        superset) echo "dna-superset-secret-key dna-superset-dburi" ;;
+    esac
+}
 
 cmd_remove() {
     parse_names "$@"
@@ -716,6 +773,7 @@ cmd_check() { # static checks, no host access and no container runtime needed
     done
     while IFS='|' read -r name ref digest _; do
         [[ "${name}" == \#* || -z "${name}" ]] && continue
+        if [[ "${ref}" == ghcr.io/redcodeworks/*:latest ]]; then say "check: ${name} still uses :latest (pin the dated tag after the first publish)"; continue; fi
         [[ "${ref}" =~ :[A-Za-z0-9._-]+$ && "${ref}" != *:latest ]] || fail "${name}: image '${ref}' must carry an explicit non-latest tag"
         [[ -z "${digest}" || "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]] || fail "${name}: bad digest '${digest}'"
     done < "${ROOT}/images.lock"
@@ -760,6 +818,7 @@ main() {
         logs) cmd_logs "$@" ;;
         lock) cmd_lock "$@" ;;
         bootstrap) cmd_bootstrap ;;
+        superset-admin) cmd_superset_admin ;;
         remove) cmd_remove "$@" ;;
         render) cmd_render "$@" ;;
         check) cmd_check ;;
