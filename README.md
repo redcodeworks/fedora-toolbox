@@ -1,0 +1,47 @@
+# fedora-toolbox
+
+Ready-made development and gaming containers for [distrobox](https://distrobox.it), published as signed images on GitHub's container registry. Each one is a normal Fedora box with the tools already installed, so you skip the setup and keep your home folder.
+
+| Image | What it is |
+|---|---|
+| [`fedora-toolbox`](fedora-toolbox/) | Development box: compilers and build tools, common `-devel` libraries, `uv`, `rustup`, `fish` (list: [`dev.txt`](fedora-toolbox/packages/dev.txt)) |
+| [`fedora-gaming`](fedora-gaming/) | Gaming box: Steam, gamescope, MangoHud, GameMode on Fedora's Mesa (list: [`gaming.txt`](fedora-gaming/packages/gaming.txt)) |
+| [`dna-toolbox`](dna-toolbox/) | Data, analytics and AI box: ROCm userspace for AMD GPUs, with Python and JVM data tooling, plus `dna-stack` to start lakehouse server containers (Postgres, SeaweedFS, Lakekeeper, Trino) on your host from the box; work in progress |
+
+## Requirements
+
+- [distrobox](https://distrobox.it) with podman (or docker)
+- Optional: [`cosign`](https://github.com/sigstore/cosign) to verify the images, [`just`](https://github.com/casey/just) to work on the repo
+
+## Install and usage
+
+```bash
+distrobox create --name fedora-toolbox --image ghcr.io/redcodeworks/fedora-toolbox:latest
+distrobox enter fedora-toolbox
+```
+
+Use the `fedora-gaming` image the same way. `:latest` is the current release; `latest-<YYYYMMDD>-<short sha>` pins a date; `:testing` is the preview. The images contain nothing personal, so a box works with your real home. Language managers such as SDKMAN and nvm are not included: install them inside the box.
+
+To check a download:
+
+```bash
+cosign verify --key cosign.pub ghcr.io/redcodeworks/fedora-toolbox:latest
+```
+
+## Contributing
+
+Issues and pull requests are welcome, though I only maintain this for my own use. Work on the `testing` branch and open a pull request into `main`. `just list` shows the images, `just lint` checks the repo, and `just new-image <name>` starts a new one.
+
+## License
+
+Apache-2.0, see [`LICENSE`](LICENSE).
+
+## Credits
+
+- [Universal Blue](https://universal-blue.org) and its [toolboxes](https://github.com/ublue-os/toolboxes) provide the base image, and the [image-template](https://github.com/ublue-os/image-template) this repo started from.
+- [Fedora](https://fedoraproject.org) for the packages, [distrobox](https://distrobox.it) and [podman](https://podman.io) for the containers, [cosign](https://github.com/sigstore/cosign) for signing.
+- Written with [Claude](https://claude.com/claude-code) (Anthropic's coding assistant).
+
+## About this repo
+
+This is a personal project for my own machine, assisted by Claude, so please excuse the slop. I have only tested it on my own setup and will not actively maintain it beyond my own needs. If you find something valuable here, I encourage you to fork it and make it yours.

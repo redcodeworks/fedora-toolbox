@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# dna-venv <name> <requirements-file>: create or refresh /opt/venvs/<name> from a requirements file, kept
+# separate from Airflow's own environment.
+set -euo pipefail
+name=${1:?usage: dna-venv <name> <requirements-file>}
+req=${2:?usage: dna-venv <name> <requirements-file>}
+[[ -f "${req}" ]] || { echo "dna-venv: ${req} not found" >&2; exit 1; }
+venv=/opt/venvs/${name}
+[[ -d "${venv}" ]] || python -m venv "${venv}"
+"${venv}/bin/python" -m pip install --no-cache-dir -r "${req}"
+echo "dna-venv: ${venv} ready"

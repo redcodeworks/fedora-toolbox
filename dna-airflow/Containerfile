@@ -1,0 +1,40 @@
+# Generic Apache Airflow image for the dna stack: no DAGs, pipelines or dbt projects are baked in (they are bind
+# mounted from the host by the dna-stack files). Python 3.11 is deliberate: lock files pin a pyarrow that has
+# no 3.13 wheel, so the default image variant (3.13) would not install them.
+FROM docker.io/apache/airflow:3.3.1-python3.11
+
+# Build values passed by CI; no secrets
+ARG IMAGE_VERSION=dev
+ARG IMAGE_REVISION=unknown
+ARG IMAGE_CREATED=unknown
+
+USER root
+# git: pipelines and dbt projects often pull packages from git
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends git \
+ && rm -rf /var/lib/apt/lists/* \
+ && mkdir -p /opt/venvs /opt/lakehouse \
+ && chown -R airflow /opt/venvs /opt/lakehouse
+COPY dna-venv /usr/local/bin/dna-venv
+RUN chmod 0755 /usr/local/bin/dna-venv
+USER airflow
+
+ENV LAKEHOUSE_HOME=/opt/lakehouse
+
+# Extra tools (dlt, dbt, ...) live in their own virtual environments under /opt/venvs, kept apart from
+# Airflow's environment: Airflow's constraints file collides with the dbt-core and dlt pins. Create one at
+# run time from a requirements file with: dna-venv <name> <requirements.txt>
+
+LABEL maintainer="redcodeworks/fedora-toolbox" \
+      org.opencontainers.image.authors="redcodeworks" \
+      org.opencontainers.image.vendor="redcodeworks" \
+      org.opencontainers.image.title="dna-airflow" \
+      org.opencontainers.image.description="Generic Apache Airflow 3.3 image for the dna stack (no DAGs baked in)" \
+      org.opencontainers.image.url="https://github.com/redcodeworks/fedora-toolbox" \
+      org.opencontainers.image.documentation="https://github.com/redcodeworks/fedora-toolbox" \
+      org.opencontainers.image.source="https://github.com/redcodeworks/fedora-toolbox" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.base.name="docker.io/apache/airflow:3.3.1-python3.11" \
+      org.opencontainers.image.version="${IMAGE_VERSION}" \
+      org.opencontainers.image.revision="${IMAGE_REVISION}" \
+      org.opencontainers.image.created="${IMAGE_CREATED}"

@@ -1,0 +1,40 @@
+# Packages installed by build_files/build.sh (one dnf5 install). One entry per line: "name",
+# "name.arch" or "@group"; blank lines and #-comments are ignored. Fedora and RPM Fusion nonfree
+# only (the base already enables both); Terra is removed from this image on purpose. A package that
+# cannot be installed fails the build.
+
+# --- Steam (from rpmfusion-nonfree; there is no separate steam repo on Fedora 44) ---
+steam
+steam-devices
+
+# --- Compositor, overlays, tuning ---
+gamescope
+mangohud
+mangohud.i686
+gamemode
+gamemode.i686
+vkBasalt
+
+# --- Mesa for 32-bit games: only Fedora ships i686 Mesa, so both architectures come from Fedora ---
+mesa-vulkan-drivers.x86_64
+mesa-vulkan-drivers.i686
+
+# --- Diagnostics and controllers ---
+vulkan-tools
+mesa-demos
+libva-utils
+joystick-support
+
+# --- Proton and Wine helpers ---
+protontricks
+winetricks
+
+# --- Optional, off by default (Kevin's Arch steam-box had none of them) ---
+# wine
+# lutris
+# goverlay
+# obs-studio-plugin-vkcapture
+
+# --- Deliberately absent ---
+# sunshine, lact, extest, game-devices-udev: not packaged for Fedora 44 in Fedora or RPM Fusion.
+# Decky Loader: out-of-tree installer, not wanted in the image.

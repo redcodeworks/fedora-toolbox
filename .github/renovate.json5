@@ -1,0 +1,40 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:best-practices",
+  ],
+
+  "rebaseWhen": "never",
+
+  // Every image directory has its own Containerfile (and so its own FROM line)
+  "dockerfile": {
+    "managerFilePatterns": ["/(^|/)Containerfile$/"]
+  },
+
+  "packageRules": [
+    {
+      "automerge": true,
+      "matchUpdateTypes": ["pin", "pinDigest"]
+    },
+    // The toolbox base images in the FROM lines of every */Containerfile are pinned by digest
+    // (config:best-practices pins docker images); new digests of the moving `latest` tag arrive
+    // as pull requests, whose CI builds without pushing.
+    {
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["ghcr.io/ublue-os/**"],
+      "pinDigests": true
+    },
+    {
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["ghcr.io/ublue-os/**"],
+      "matchUpdateTypes": ["digest"],
+      "automerge": true
+    },
+    {
+      "enabled": false,
+      "matchUpdateTypes": ["digest", "pinDigest", "pin"],
+      "matchDepTypes": ["container"],
+      "matchFileNames": [".github/workflows/**.yaml", ".github/workflows/**.yml"],
+    },
+  ]
+}

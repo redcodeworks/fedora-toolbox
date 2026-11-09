@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+# dna-setup: create the analytics Python environment of dna-toolbox with uv. It never uses the system
+# Python (the Fedora RPMs are built for it) and installs nothing globally.
+#
+#   dna-setup                 uv-managed Python $DNA_PYTHON_VERSION, a venv, JupyterLab, ipykernel,
+#                             databricks-connect, the libraries in pylibs.txt, the Jupyter kernel
+#   dna-setup --torch         also the ROCm PyTorch wheel from $DNA_TORCH_INDEX (must be set)
+#   dna-setup --extras a,b    also named extras: dbt (dbt-core, dbt-trino), mlflow
+#   dna-setup --sdkman        also Spark and Hadoop through SDKMAN (installed separately)
+#   dna-setup add-python 3.13 install another uv Python and create its own plain venv
+set -euo pipefail
+
+# shellcheck source=/dev/null
+source "${DNA_VERSIONS_FILE:-/usr/share/dna-toolbox/versions.env}"
+SHARE=${DNA_SHARE:-/usr/share/dna-toolbox}
+DATA=${DNA_DATA_DIR:-${XDG_DATA_HOME:-${HOME}/.local/share}/dna-toolbox}
+VENV=${DNA_VENV:-${DATA}/venv-py${DNA_PYTHON_VERSION}}
+
+say() { printf '%s\n' "$*"; }
+die() { printf 'dna-setup: %s\n' "$*" >&2; exit 1; }
+warn() { printf 'dna-setup: warning: %s\n' "$*" >&2; }
+command -v uv >/dev/null || die "uv is not installed"
+
+if [[ "${1:-}" == "add-python" ]]; then
+    v=${2:?usage: dna-setup add-python <version>}
+    say "install uv Python ${v}"; uv python install "${v}"
+    target=${DATA}/venv-py${v}
+    [[ -d "${target}" ]] || uv venv --python "${v}" "${target}"
+    say "venv: ${target}"; say "undo: rm -rf ${target}"
+    exit 0
+fi
+
+torch=0 extras="" sdkman=0
+while (( $# )); do
+    case "$1" in
+        --torch) torch=1 ;;
+        --extras) extras=$2; shift ;;
+        --sdkman) sdkman=1 ;;
+        -h|--help) sed -n '2,13p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) die "unknown option $1" ;;
+    esac
+    shift
+done
+
+say "Python ${DNA_PYTHON_VERSION} (uv-managed), venv ${VENV}"
+uv python install "${DNA_PYTHON_VERSION}"
+[[ -d "${VENV}" ]] || uv venv --python "${DNA_PYTHON_VERSION}" "${VENV}"
+py=${VENV}/bin/python
+say "undo: rm -rf ${VENV}"
+
+uv pip install --python "${py}" jupyterlab ipykernel
+uv pip install --python "${py}" -r <(sed -e 's/[[:space:]]*#.*$//' -e '/^[[:space:]]*$/d' "${SHARE}/pylibs.txt")
+# UNVERIFIED: that databricks-connect ${DNA_DBR_VERSION}.x resolves against this Python; a failure only warns
+uv pip install --python "${py}" "databricks-connect~=${DNA_DBR_VERSION}.0" \
+    || warn "databricks-connect ~=${DNA_DBR_VERSION}.0 did not install"
+
+if (( torch )); then
+    [[ -n "${DNA_TORCH_INDEX:-}" ]] || die "set DNA_TORCH_INDEX to the ROCm PyTorch wheel index first (no default is shipped: it depends on the ROCm version)"
+    uv pip install --python "${py}" torch --index-url "${DNA_TORCH_INDEX}"
+fi
+
+IFS=',' read -r -a want <<<"${extras}"
+for e in "${want[@]:-}"; do
+    case "${e}" in
+        "") ;;
+        dbt) uv pip install --python "${py}" dbt-core dbt-trino ;;
+        mlflow) uv pip install --python "${py}" mlflow ;;
+        *) warn "unknown extra '${e}' (known: dbt, mlflow)" ;;
+    esac
+done
+
+"${py}" -m ipykernel install --user --name "dna-py${DNA_PYTHON_VERSION}" \
+    --display-name "DNA Python ${DNA_PYTHON_VERSION} (DBR ${DNA_DBR_VERSION})"
+say "undo: jupyter kernelspec remove dna-py${DNA_PYTHON_VERSION}"
+
+if (( sdkman )); then
+    init=${SDKMAN_DIR:-${HOME}/.sdkman}/bin/sdkman-init.sh
+    if [[ -r "${init}" ]]; then
+        set +u
+        # shellcheck source=/dev/null
+        source "${init}"
+        # Java: Fedora 44 lacks java-21-openjdk, so take DBR's flavor (Zulu) from SDKMAN. UNVERIFIED identifier
+        # parsing: the first `<version>.x-zulu` entry of `sdk list java`
+        jid=$(sdk list java 2>/dev/null | grep -oE "${DNA_JAVA_VERSION}\.[0-9.]+-zulu" | head -n1 || true)
+        if [[ -n "${jid}" ]]; then sdk install java "${jid}" || warn "SDKMAN java ${jid} did not install"; else warn "no Zulu ${DNA_JAVA_VERSION} found in sdk list java"; fi
+        sdk install spark "${DNA_SPARK_VERSION}" || warn "SDKMAN spark ${DNA_SPARK_VERSION} not available (see: sdk list spark)"
+        sdk install hadoop "${DNA_HADOOP_VERSION}" || warn "SDKMAN hadoop ${DNA_HADOOP_VERSION} not available (see: sdk list hadoop)"
+        set -u
+    else
+        warn "SDKMAN is not installed (ujust toolbox sets it up); skipped Spark and Hadoop"
+    fi
+fi
+say "done. Next: dna-lab, or dna-doctor to check the box"

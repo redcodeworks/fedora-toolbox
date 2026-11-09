@@ -1,0 +1,18 @@
+# Pinned images for the stack: name|image reference|sha256 digest
+# Digests from the hub's registry research (2026-11-08); `dna-stack lock` refreshes them (needs a runtime
+# and network). When a digest is present it is what gets pulled. Full registry names, so podman needs no
+# short-name resolution.
+# SeaweedFS: Kevin's nox stack runs 3.24 (a 2022 image); upstream is on 4.x and Lakekeeper's own v0.13.1
+# example uses 4.36, so 4.36 is used here (a version difference to nox, flagged for Kevin).
+postgres|docker.io/library/postgres:17-alpine|sha256:3540c0362c809df084ffac0ae69fe794515f9de92692f02178bcdce0ef0302ac
+seaweedfs|docker.io/chrislusf/seaweedfs:4.36|sha256:800b2115c63236e8bd0e5d572dc25dd493dc2feed08b54a2a269dc0101c9d94a
+lakekeeper|quay.io/lakekeeper/catalog:v0.13.1|sha256:4749ee267a4524502f9786e3f7eb8d34c8fe2a7b316d232bab80ca47563d7c68
+trino|docker.io/trinodb/trino:483|sha256:db58cc93e593a2706553745f276bb119c9810e69918be56ecde088ba7ccb0534
+# Kafka: no digest researched yet (run `dna-stack lock`).
+kafka|docker.io/apache/kafka:4.3.1|
+# Images built by this repo's CI. `latest` is a placeholder until the first publish from main: then set the
+# dated tag (latest-<YYYYMMDD>-<sha>) and run `dna-stack lock` for the digest. The check tolerates `latest`
+# only for ghcr.io/redcodeworks images.
+connect|ghcr.io/redcodeworks/dna-connect:latest|
+airflow|ghcr.io/redcodeworks/dna-airflow:latest|
+superset|ghcr.io/redcodeworks/dna-superset:latest|

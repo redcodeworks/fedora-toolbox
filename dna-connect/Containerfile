@@ -1,0 +1,34 @@
+# Kafka Connect for the dna stack: Debezium's Connect image plus the Apache Iceberg sink.
+# Apache publishes only a thin iceberg-kafka-connect jar, so the plugin directory is assembled by Maven
+# (dependency:copy-dependencies) in a throwaway stage. includeScope=runtime keeps Kafka's own connect-api and
+# kafka-clients out of the plugin (they would cause a ClassCastException next to the worker's copies). One
+# directory per connector under /kafka/connect, so each gets its own classloader.
+FROM docker.io/library/maven:3.9-eclipse-temurin-17 AS deps
+ARG ICEBERG_VERSION=1.11.0
+WORKDIR /build
+COPY pom.xml .
+RUN mvn -B -q -Diceberg.version="${ICEBERG_VERSION}" dependency:copy-dependencies \
+      -DoutputDirectory=/plugins/iceberg-sink -DincludeScope=runtime
+
+FROM docker.io/debezium/connect:3.0.0.Final
+
+# Build values passed by CI; no secrets
+ARG IMAGE_VERSION=dev
+ARG IMAGE_REVISION=unknown
+ARG IMAGE_CREATED=unknown
+
+COPY --from=deps /plugins/iceberg-sink /kafka/connect/iceberg-sink
+
+LABEL maintainer="redcodeworks/fedora-toolbox" \
+      org.opencontainers.image.authors="redcodeworks" \
+      org.opencontainers.image.vendor="redcodeworks" \
+      org.opencontainers.image.title="dna-connect" \
+      org.opencontainers.image.description="Kafka Connect with Debezium and the Apache Iceberg sink, for the dna stack" \
+      org.opencontainers.image.url="https://github.com/redcodeworks/fedora-toolbox" \
+      org.opencontainers.image.documentation="https://github.com/redcodeworks/fedora-toolbox" \
+      org.opencontainers.image.source="https://github.com/redcodeworks/fedora-toolbox" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.base.name="docker.io/debezium/connect:3.0.0.Final" \
+      org.opencontainers.image.version="${IMAGE_VERSION}" \
+      org.opencontainers.image.revision="${IMAGE_REVISION}" \
+      org.opencontainers.image.created="${IMAGE_CREATED}"

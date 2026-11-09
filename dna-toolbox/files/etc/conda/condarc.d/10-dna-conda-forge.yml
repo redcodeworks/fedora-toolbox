@@ -1,0 +1,6 @@
+# conda-forge only: never the Anaconda `defaults` channel (Anaconda's terms apply to it). Read by
+# conda and by micromamba (from the Fedora `mamba` package).
+channels:
+  - conda-forge
+channel_priority: strict
+default_channels: []

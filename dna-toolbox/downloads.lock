@@ -1,0 +1,4 @@
+# Pinned vendor downloads, installed by build_files/build.sh into /usr/local/bin (optional tier: a failed
+# download or checksum only warns, the build goes on). Format: name|version|url|sha256|file in the archive.
+# The sha256 is the digest GitHub shows for the release asset (checked with `gh api` on 2026-11-09).
+duckdb|2.0.0|https://github.com/duckdb/duckdb/releases/download/v2.0.0/duckdb-cli-linux-amd64.tar.gz|c6507206baf7793c6013dbd82368469a45f20dc0e17a6f92f204602f652ed2bc|duckdb

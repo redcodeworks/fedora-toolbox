@@ -1,0 +1,180 @@
+---
+name: Build container image
+# Multi-image repo (toolbox images only): every top-level directory with a Containerfile is one image.
+# The plan job picks the images to build (.github/scripts/plan-images.sh, tested by
+# tests/plan-images.sh); build-image.yml builds, smoke-tests, publishes and signs one image.
+#
+# Branch model: pushes to `testing` publish the `testing*` tags; `main` is protected and only changes
+# through a pull request from `testing`, whose merge publishes `latest*` (as do the weekly schedule,
+# which runs on the default branch, and manual runs on main). Pull requests build and smoke-test
+# only. No workflow-level `paths:` filter: with required status checks a skipped workflow leaves
+# them pending forever, so the planning script does the filtering and the aggregate jobs below
+# always report.
+on:
+  pull_request:
+    branches:
+      - main
+  schedule:
+    - cron: '0 6 * * 0'  # weekly, Sunday 06:00 UTC (the only schedule): all images
+  push:
+    branches:
+      - main
+      - testing
+  workflow_dispatch:
+    inputs:
+      image:
+        description: "Build only this image (directory or image name); empty builds all"
+        type: string
+        required: false
+        default: ""
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.event_name != 'schedule' }}
+
+jobs:
+  # A pull request from this repo's testing branch builds nothing itself: the push to testing already
+  # built, smoke-tested, published and signed the same commit, so this job waits for that push run and
+  # reports its result under the required check names (below). Pull requests from anywhere else keep
+  # the full plan and build.
+  mirror:
+    name: Wait for the testing push build
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'testing' }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 40
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Wait for the push run of this commit and take its result
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          started=$SECONDS
+          while :; do
+            run=$(gh api "repos/${REPO}/actions/workflows/build.yml/runs?head_sha=${SHA}&event=push&branch=testing" \
+              --jq '.workflow_runs | sort_by(.created_at) | last // empty | [.id, .status, .conclusion] | @tsv')
+            if [[ -z "${run}" ]]; then
+              (( SECONDS - started < 180 )) || { echo "::error::No push build found for ${SHA} on testing"; exit 1; }
+            else
+              read -r id status conclusion <<<"${run}"
+              echo "push run ${id}: ${status} ${conclusion}"
+              if [[ "${status}" == "completed" ]]; then
+                [[ "${conclusion}" == "success" ]] || { echo "::error::The push build of ${SHA} ended ${conclusion}"; exit 1; }
+                exit 0
+              fi
+            fi
+            sleep 20
+          done
+
+  plan:
+    name: Plan builds
+    if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'testing') }}
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+      packages: read  # the promote decision looks up published testing tags
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      any: ${{ steps.plan.outputs.any }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0  # the plan diffs commit ranges
+
+      - name: Install just
+        uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 #v4.0.0
+
+      - name: Lint and test the planning
+        run: |
+          just check
+          just lint
+          just test
+
+      - name: Choose images
+        id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          AFTER: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          WANT: ${{ inputs.image }}
+          REF: ${{ github.ref }}
+          PROMOTE_ENABLED: ${{ vars.PROMOTE_ENABLED }}
+          IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          matrix=$(.github/scripts/plan-images.sh "${EVENT}" "${BEFORE}" "${AFTER}" "${WANT}")
+          # Promote instead of rebuild? Only a merge to main of an already-tested testing image
+          # (see promote-decision.sh); needs the repository variable PROMOTE_ENABLED=true.
+          if [[ "${PROMOTE_ENABLED}" == "true" && "${EVENT}" == "push" && "${REF}" == "refs/heads/main" ]]; then
+            skopeo login ghcr.io -u "${ACTOR}" --password-stdin <<<"${GH_TOKEN}" >/dev/null
+          fi
+          matrix=$(IMAGE_REGISTRY="${IMAGE_REGISTRY,,}" .github/scripts/plan-promote.sh "${matrix}" "${EVENT}" "${REF}")
+          echo "matrix=${matrix}" >> "${GITHUB_OUTPUT}"
+          echo "any=$(jq '.include | length > 0' <<<"${matrix}")" >> "${GITHUB_OUTPUT}"
+          echo "Plan: ${matrix}"
+
+  images:
+    name: images (${{ matrix.image }})
+    needs: plan
+    if: needs.plan.outputs.any == 'true'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/build-image.yml
+    with:
+      image_name: ${{ matrix.image }}
+      image_dir: ${{ matrix.dir }}
+      mode: ${{ matrix.mode }}
+      source: ${{ matrix.source }}
+    secrets: inherit
+
+  # The branch protection requires checks named "Build and push image" and "Sign and verify images".
+  # Matrix and reusable workflow jobs get names of their own, so these two jobs keep the required
+  # names. Building or promoting, and signing, happen inside build-image.yml (a matrix cannot pass outputs between jobs), so a
+  # failure in either stage of any image fails the `images` job and therefore both aggregates. Both
+  # pass when every planned image succeeded or when the plan was empty (nothing changed, or nothing
+  # was published because this was a pull request).
+  result:
+    name: Build and push image
+    needs: [plan, images, mirror]
+    if: always()
+    runs-on: ubuntu-26.04
+    steps:
+      - name: Every planned image built
+        env:
+          PLAN: ${{ needs.plan.result }}
+          IMAGES: ${{ needs.images.result }}
+          MIRROR: ${{ needs.mirror.result }}
+        run: |
+          echo "plan: ${PLAN}, images: ${IMAGES}, mirror: ${MIRROR}"
+          # pull request from testing: the result is the push build's, nothing was planned here
+          if [[ "${MIRROR}" != "skipped" ]]; then [[ "${MIRROR}" == "success" ]] || { echo "::error::The testing push build did not succeed"; exit 1; }; exit 0; fi
+          [[ "${PLAN}" == "success" ]] || { echo "::error::Planning failed"; exit 1; }
+          [[ "${IMAGES}" == "success" || "${IMAGES}" == "skipped" ]] || { echo "::error::An image build failed or was cancelled"; exit 1; }
+
+  signed:
+    name: Sign and verify images
+    needs: [plan, images, mirror]
+    if: always()
+    runs-on: ubuntu-26.04
+    steps:
+      - name: Every published image signed and verified (or nothing published)
+        env:
+          PLAN: ${{ needs.plan.result }}
+          IMAGES: ${{ needs.images.result }}
+          MIRROR: ${{ needs.mirror.result }}
+        run: |
+          echo "plan: ${PLAN}, images: ${IMAGES}, mirror: ${MIRROR}"
+          # pull request from testing: the result is the push build's, nothing was planned here
+          if [[ "${MIRROR}" != "skipped" ]]; then [[ "${MIRROR}" == "success" ]] || { echo "::error::The testing push build did not succeed"; exit 1; }; exit 0; fi
+          [[ "${PLAN}" == "success" ]] || { echo "::error::Planning failed"; exit 1; }
+          [[ "${IMAGES}" == "success" || "${IMAGES}" == "skipped" ]] || { echo "::error::An image build, signing or verification failed or was cancelled"; exit 1; }

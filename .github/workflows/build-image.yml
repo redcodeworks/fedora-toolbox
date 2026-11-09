@@ -1,0 +1,291 @@
+---
+name: Build one image
+# Reusable workflow called by build.yml once per planned image: build with podman, smoke test
+# (<dir>/tests/smoke.sh), publish, then the separate signing job. When the plan says `promote`, the
+# already-tested and signed testing image is retagged to latest (same digest, no rebuild) instead;
+# if its signature cannot be verified the promote job steps aside and the normal build runs.
+#
+# Branch model: pushes to `testing` publish `testing`, `testing-<short sha>` and
+# `testing-<YYYYMMDD>-<short sha>`; main (push, weekly schedule, manual run) publishes `latest` and
+# `latest-<YYYYMMDD>-<short sha>`. Pull request builds publish nothing and never reach signing.
+on:
+  workflow_call:
+    inputs:
+      image_name:
+        description: "Image name under ghcr.io/<owner>/ (the directory name unless image.env overrides it)"
+        type: string
+        required: true
+      image_dir:
+        description: "Top-level directory holding the Containerfile (the build context)"
+        type: string
+        required: true
+      mode:
+        description: "build (default) or promote (retag the tested testing image to latest)"
+        type: string
+        required: false
+        default: build
+      source:
+        description: "Promote only: short sha of the commit whose testing-<sha> image is promoted"
+        type: string
+        required: false
+        default: ""
+
+env:
+  IMAGE_REGISTRY: "ghcr.io/${{ github.repository_owner }}"  # do not edit
+
+# One run per image and ref; a newer run cancels its predecessor on every ref except main and never on
+# the weekly schedule (main publishes and promotes, the schedule refreshes the images)
+concurrency:
+  group: build-image-${{ inputs.image_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.event_name != 'schedule' }}
+
+jobs:
+  # Promote: retag the already-tested testing image to latest instead of rebuilding it. The signature
+  # is verified BEFORE retagging (no secret needed, only cosign.pub); without a valid signature
+  # nothing is retagged and the build job below runs as usual.
+  promote:
+    name: Promote tested image
+    if: inputs.mode == 'promote'
+    runs-on: ubuntu-26.04
+
+    permissions:
+      contents: read
+      packages: write
+
+    outputs:
+      promoted: ${{ steps.retag.outputs.promoted }}
+      image: ${{ steps.retag.outputs.image }}
+      digests: ${{ steps.retag.outputs.digests }}
+      alias_tags: ${{ steps.retag.outputs.alias_tags }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install Cosign
+        uses: ./.github/actions/install-cosign
+
+      - name: Verify, then retag the tested image
+        id: retag
+        env:
+          NAME: ${{ inputs.image_name }}
+          SOURCE: ${{ inputs.source }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          image="${IMAGE_REGISTRY,,}/${NAME,,}"
+          src="${image}:testing-${SOURCE}"
+          fallback() { echo "::warning::$1: falling back to a normal build"; echo "promoted=false" >> "${GITHUB_OUTPUT}"; exit 0; }
+
+          skopeo login ghcr.io -u "${ACTOR}" --password-stdin <<<"${GH_TOKEN}" >/dev/null
+          skopeo inspect --raw "docker://${src}" > "${RUNNER_TEMP}/manifest.json" || fallback "cannot read ${src}"
+          before=$(skopeo manifest-digest "${RUNNER_TEMP}/manifest.json")
+          echo "Tested image ${src} is ${before}"
+
+          # Verify BEFORE retagging: the signature belongs to the digest and exists from the testing publish
+          cosign verify --key cosign.pub "${image}@${before}" > /dev/null || fallback "no valid signature for ${before}"
+
+          dated="latest-$(date -u +%Y%m%d)-${GITHUB_SHA::7}"
+          for tag in latest "${dated}"; do
+            skopeo copy --all --preserve-digests "docker://${src}" "docker://${image}:${tag}"
+            skopeo inspect --raw "docker://${image}:${tag}" > "${RUNNER_TEMP}/after.json"
+            after=$(skopeo manifest-digest "${RUNNER_TEMP}/after.json")
+            if [[ "${after}" != "${before}" ]]; then
+              echo "::error::${tag} is ${after}, expected ${before}"
+              exit 1
+            fi
+            echo "${tag} -> ${after}"
+          done
+          {
+            echo "promoted=true"
+            echo "image=${image}"
+            echo "digests=${before}"
+            echo "alias_tags=latest ${dated}"
+          } >> "${GITHUB_OUTPUT}"
+
+  build_push:
+    name: Build image
+    needs: promote
+    if: ${{ !cancelled() && needs.promote.result != 'failure' && needs.promote.outputs.promoted != 'true' }}
+    runs-on: ubuntu-26.04
+
+    permissions:
+      contents: read
+      packages: write
+
+    outputs:
+      publish: ${{ steps.channel.outputs.publish }}
+      image: ${{ steps.channel.outputs.image }}
+      digests: ${{ steps.push-image.outputs.digests }}
+      alias_tags: ${{ steps.channel.outputs.alias_tags }}
+
+    steps:
+      # These action versions are pinned by https://github.com/renovatebot/renovate
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Maximize build space
+        uses: ublue-os/remove-unwanted-software@695eb75bc387dbcd9685a8e72d23439d8686cba6
+
+      - name: Install just
+        uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 #v4.0.0
+
+      # main publishes `latest*`, testing publishes `testing*`; pull request builds publish nothing
+      - name: Choose channel
+        id: channel
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          NAME: ${{ inputs.image_name }}
+        run: |
+          publish=false
+          tag=testing
+          if [[ "${EVENT}" != "pull_request" ]]; then
+            case "${REF}" in
+              refs/heads/main) publish=true; tag=latest ;;
+              refs/heads/testing) publish=true ;;
+            esac
+          fi
+          dated="${tag}-$(date -u +%Y%m%d)-${GITHUB_SHA::7}"
+          # testing also gets a plain testing-<short sha> tag: the promote decision looks it up
+          if [[ "${tag}" == "testing" ]]; then alias="${tag} testing-${GITHUB_SHA::7} ${dated}"; else alias="${tag} ${dated}"; fi
+          {
+            echo "publish=${publish}"
+            echo "tag=${tag}"
+            echo "image=${IMAGE_REGISTRY,,}/${NAME,,}"
+            echo "alias_tags=${alias}"
+          } >> "${GITHUB_OUTPUT}"
+          {
+            echo "DATED_TAG=${dated}"
+            echo "TAG=${tag}"
+            echo "LOCAL_NAME=${NAME,,}"
+          } >> "${GITHUB_ENV}"
+          echo "Channel: tag=${tag} publish=${publish}"
+
+      # A failed dnf resolution (missing or renamed package) fails here, loudly.
+      - name: Build image
+        env:
+          DIR: ${{ inputs.image_dir }}
+        run: |
+          podman build --pull=newer -f "${DIR}/Containerfile" \
+            --build-arg IMAGE_VERSION="${DATED_TAG}" \
+            --build-arg IMAGE_REVISION="${GITHUB_SHA}" \
+            --build-arg IMAGE_CREATED="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -t "localhost/${LOCAL_NAME}:${TAG}" \
+            -t "localhost/${LOCAL_NAME}:${DATED_TAG}" "${DIR}"
+
+      # Every tag that is pushed must exist locally (testing also has testing-<short sha>)
+      - name: Tag image
+        env:
+          ALIAS_TAGS: ${{ steps.channel.outputs.alias_tags }}
+        run: |
+          for t in ${ALIAS_TAGS}; do
+            podman tag "localhost/${LOCAL_NAME}:${TAG}" "localhost/${LOCAL_NAME}:${t}"
+          done
+
+      # The labels must be this repo's own: no email address from the base's labels, and the
+      # build's version, revision and created values
+      - name: Check image labels
+        run: |
+          labels=$(podman image inspect "localhost/${LOCAL_NAME}:${TAG}" --format '{{json .Config.Labels}}')
+          echo "${labels}"
+          if grep -Eq '[[:alnum:]._+-]+@[[:alnum:]-]+\.[[:alpha:]]' <<<"${labels}"; then
+            echo "::error::An image label contains an email address (inherited from the base?)"
+            exit 1
+          fi
+          grep -q "\"org.opencontainers.image.revision\":\"${GITHUB_SHA}\"" <<<"${labels}" || { echo "::error::revision label is not this build's sha"; exit 1; }
+
+      - name: Smoke test
+        env:
+          NAME: ${{ inputs.image_name }}
+        run: just smoke "${NAME}" "${TAG}"
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        if: steps.channel.outputs.publish == 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push To GHCR
+        if: steps.channel.outputs.publish == 'true'
+        id: push-image
+        env:
+          IMAGE: ${{ steps.channel.outputs.image }}
+          ALIAS_TAGS: ${{ steps.channel.outputs.alias_tags }}
+        run: |
+          set -euox pipefail
+          : > "${RUNNER_TEMP}/digests"
+          for tag in ${ALIAS_TAGS}; do
+            podman push --digestfile="${RUNNER_TEMP}/digestfile" "localhost/${LOCAL_NAME}:${tag}" "${IMAGE}:${tag}"
+            cat "${RUNNER_TEMP}/digestfile" >> "${RUNNER_TEMP}/digests"
+            echo >> "${RUNNER_TEMP}/digests"
+          done
+
+          # Keep every distinct digest and sign each of them (the tags may not
+          # all end up with the same manifest digest)
+          digests=$(sort -u "${RUNNER_TEMP}/digests" | grep -v '^$' | tr '\n' ' ')
+          echo "digests=${digests}" >> "$GITHUB_OUTPUT"
+
+  # Signing runs in its own job so the private key is only reachable through the
+  # `signing` environment (limited to the main and testing branches). Pull request
+  # builds never publish, so they never reach this job or the key.
+  sign:
+    name: Sign and verify image
+    needs: [promote, build_push]
+    if: ${{ !cancelled() && (needs.promote.outputs.promoted == 'true' || needs.build_push.outputs.publish == 'true') }}
+    runs-on: ubuntu-26.04
+    environment: signing
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Cosign
+        uses: ./.github/actions/install-cosign
+
+      # A promoted image is already signed (its digest was verified before retagging); only a fresh build is signed
+      - name: Sign every pushed digest
+        if: needs.promote.outputs.promoted != 'true'
+        env:
+          COSIGN_EXPERIMENTAL: false
+          COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
+          IMAGE: ${{ needs.promote.outputs.promoted == 'true' && needs.promote.outputs.image || needs.build_push.outputs.image }}
+          DIGESTS: ${{ needs.promote.outputs.promoted == 'true' && needs.promote.outputs.digests || needs.build_push.outputs.digests }}
+        run: |
+          set -euo pipefail
+          [[ -n "${DIGESTS// /}" ]] || { echo "::error::No pushed digests to sign"; exit 1; }
+          # https://github.com/containers/container-libs/issues/388
+          # use old bundle format, so we can use newer cosign 3.X.X instead of 2.X.X
+          for digest in ${DIGESTS}; do
+            cosign sign -y --new-bundle-format=false --use-signing-config=false --key env://COSIGN_PRIVATE_KEY "${IMAGE}@${digest}"
+          done
+
+      - name: Verify every pushed digest and tag against cosign.pub
+        env:
+          IMAGE: ${{ needs.promote.outputs.promoted == 'true' && needs.promote.outputs.image || needs.build_push.outputs.image }}
+          DIGESTS: ${{ needs.promote.outputs.promoted == 'true' && needs.promote.outputs.digests || needs.build_push.outputs.digests }}
+          ALIAS_TAGS: ${{ needs.promote.outputs.promoted == 'true' && needs.promote.outputs.alias_tags || needs.build_push.outputs.alias_tags }}
+        run: |
+          set -euo pipefail
+          for digest in ${DIGESTS}; do
+            cosign verify --key cosign.pub "${IMAGE}@${digest}" > /dev/null
+            echo "signed: ${digest}"
+          done
+          for tag in ${ALIAS_TAGS}; do
+            cosign verify --key cosign.pub "${IMAGE}:${tag}" > /dev/null
+            echo "signed: ${tag}"
+          done
