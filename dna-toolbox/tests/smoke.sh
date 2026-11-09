@@ -13,7 +13,6 @@ run() {
 }
 
 # TODO: one line per tool this toolbox must provide
-run make --version
 
 # A toolbox shares the user's home at runtime: the image must carry nothing user-specific
 if [ -d /home ] && [ -n "$(find /home -mindepth 1 -maxdepth 2 2>/dev/null | head -n1)" ]; then
