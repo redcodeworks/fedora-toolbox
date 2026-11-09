@@ -4,7 +4,8 @@ Ready-made development and gaming containers for [distrobox](https://distrobox.i
 
 | Image | What it is |
 |---|---|
-| [`fedora-toolbox`](fedora-toolbox/) | Development box: compilers and build tools, common `-devel` libraries, `uv`, `rustup`, `fish` (list: [`dev.txt`](fedora-toolbox/packages/dev.txt)) |
+| [`fedora-toolbox`](fedora-toolbox/) | Development box: compilers and build tools, common `-devel` libraries, `uv`, `rustup`, `fish` (list: [`dev.txt`](dev-packages/dev.txt)) |
+| [`dev-packages`](dev-packages/) | Not a box: the developer package list above and its installer as a small signed image, so other Fedora-based images can install the same tools (see its README) |
 | [`fedora-gaming`](fedora-gaming/) | Gaming box: Steam, gamescope, MangoHud, GameMode on Fedora's Mesa (list: [`gaming.txt`](fedora-gaming/packages/gaming.txt)) |
 | [`dna-toolbox`](dna-toolbox/) | Data, analytics and AI box: Python and JVM data tooling, GPU toolkits (ROCm or CUDA) installed on demand with `dna-gpu`, plus `dna-stack` to start lakehouse server containers (Postgres, SeaweedFS, Lakekeeper, Trino, and more) on your host from the box; the heavier services (Kafka Connect, Airflow, Superset) are built on your machine the first time you start them; work in progress |
 
@@ -22,6 +23,8 @@ distrobox enter fedora-toolbox
 ```
 
 The images are built for x86_64 (amd64) hosts only. Use the `fedora-gaming` image the same way. `:latest` is the current release; `latest-<YYYYMMDD>-<short sha>` pins a date; `:testing` is the preview. The images contain nothing personal, so a box works with your real home. Language managers such as SDKMAN and nvm are not included: install them inside the box.
+
+The `fedora-toolbox` box now installs its tools from the same list that other images can reuse (the `dev-packages` entry above), and one package that was renamed between Fedora releases (`libgit2`) now works on both. Nothing changes in how you create or use the box.
 
 To check a download:
 

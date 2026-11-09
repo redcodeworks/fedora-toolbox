@@ -12,7 +12,8 @@
 #     (the testing tip) is docs-only (top-level *.md, docs/**, LICENSE, .gitignore);
 #   * walking back the first-parent history of HEAD^2 (at most 50 commits) there is a commit C for
 #     which a published `testing-<short sha of C>` tag exists for this image, and every file changed
-#     between C and HEAD^2 is docs-only or lives in another image's directory.
+#     between C and HEAD^2 is docs-only or lives in another image's directory (the image's own
+#     EXTRA_PATHS directories from image.env, such as dev-packages for dev-toolbox, do not count as another's).
 # Anything else builds (schedule, dispatch, non-merge push, differing trees, no matching image).
 #
 # The registry lookup is `${TAG_EXISTS_CMD:-registry_has_tag} <image-name> <tag>` (exit 0 = exists);
@@ -57,7 +58,8 @@ done < <(g diff --name-only HEAD HEAD^2)
 
 tip=$(g rev-parse HEAD^2)
 others=()
-for d in $(image_dirs); do [[ "${d}" == "${dir}" ]] || others+=("${d}"); done
+own=" ${dir} $(image_extra_paths "${dir}") "
+for d in $(image_dirs); do [[ "${own}" == *" ${d} "* ]] || others+=("${d}"); done
 
 found=""
 while IFS= read -r c; do

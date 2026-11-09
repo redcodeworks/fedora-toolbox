@@ -172,12 +172,14 @@ jobs:
         env:
           DIR: ${{ inputs.image_dir }}
         run: |
+          # the build context is the image directory unless image.env sets BUILD_CONTEXT
+          context=$(.github/scripts/images.sh context "${DIR}")
           podman build --pull=newer -f "${DIR}/Containerfile" \
             --build-arg IMAGE_VERSION="${DATED_TAG}" \
             --build-arg IMAGE_REVISION="${GITHUB_SHA}" \
             --build-arg IMAGE_CREATED="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             -t "localhost/${LOCAL_NAME}:${TAG}" \
-            -t "localhost/${LOCAL_NAME}:${DATED_TAG}" "${DIR}"
+            -t "localhost/${LOCAL_NAME}:${DATED_TAG}" "${context}"
 
       # Every tag that is pushed must exist locally (testing also has testing-<short sha>)
       - name: Tag image
@@ -201,9 +203,26 @@ jobs:
           grep -q "\"org.opencontainers.image.revision\":\"${GITHUB_SHA}\"" <<<"${labels}" || { echo "::error::revision label is not this build's sha"; exit 1; }
 
       - name: Smoke test
+        if: ${{ hashFiles(format('{0}/tests/smoke.sh', inputs.image_dir)) != '' }}
         env:
           NAME: ${{ inputs.image_name }}
         run: just smoke "${NAME}" "${TAG}"
+
+      # A data image (IMAGE_KIND=list, FROM scratch) has no shell to run a smoke test in: check
+      # instead that the image carries the files of its directory
+      - name: Check data image contents
+        if: ${{ hashFiles(format('{0}/tests/smoke.sh', inputs.image_dir)) == '' }}
+        env:
+          DIR: ${{ inputs.image_dir }}
+        run: |
+          set -euo pipefail
+          cid=$(podman create "localhost/${LOCAL_NAME}:${TAG}" /install.sh)
+          for pair in dev.txt:dev.txt install.sh:install.sh README.md:README; do
+            podman cp "${cid}:/${pair#*:}" "${RUNNER_TEMP}/check-${pair%%:*}"
+            cmp "${RUNNER_TEMP}/check-${pair%%:*}" "${DIR}/${pair%%:*}"
+            echo "ok: /${pair#*:} matches ${DIR}/${pair%%:*}"
+          done
+          podman rm "${cid}" > /dev/null
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0

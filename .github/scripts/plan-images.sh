@@ -9,9 +9,10 @@
 # <dispatch-image>  optional `image` input of a manual run (directory or image name)
 #
 # Rules:
-#   schedule                 build all images
+#   schedule                 build all images except those with IMAGE_SCHEDULE=false in image.env
 #   workflow_dispatch        build all images, or only the one named
-#   push, pull_request       build the images whose directory has changed files in <before>..<after>;
+#   push, pull_request       build the images whose directory (or EXTRA_PATHS directories from
+#                            image.env) has changed files in <before>..<after>;
 #                            a change to a shared file (anything under .github/ except renovate and
 #                            dependabot config, the root Justfile, cosign.pub) builds all images;
 #                            an empty, all-zero or unknown <before> (new branch, force push) builds all
@@ -30,6 +31,7 @@ after="${3:-HEAD}"
 want="${4-}"
 
 all() { image_json; }
+scheduled() { image_json scheduled; }
 
 json_for() { # dirs...
     local d out="" sep=""
@@ -49,7 +51,7 @@ is_shared() {
 }
 
 case "${event}" in
-    schedule) all ;;
+    schedule) scheduled ;;
     workflow_dispatch)
         if [[ -n "${want}" ]]; then
             read -r d _ < <(resolve_image "${want}") || exit 1
@@ -77,7 +79,12 @@ case "${event}" in
         picked=()
         for d in $(image_dirs); do
             for f in "${changed[@]}"; do
-                if [[ "${f}" == "${d}/"* ]]; then
+                hit=0
+                read -r -a roots <<<"${d} $(image_extra_paths "${d}")"
+                for p in "${roots[@]}"; do
+                    [[ "${f}" == "${p}/"* ]] && hit=1
+                done
+                if (( hit )); then
                     picked+=("${d}")
                     break
                 fi

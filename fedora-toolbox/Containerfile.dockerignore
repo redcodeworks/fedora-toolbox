@@ -1,0 +1,5 @@
+# Build context is the repository root: send only what the ctx stage copies
+*
+!fedora-toolbox/build_files
+!dev-packages/dev.txt
+!dev-packages/install.sh

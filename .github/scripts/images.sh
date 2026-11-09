@@ -5,6 +5,7 @@
 #   images.sh list            one line per image: <dir><TAB><name><TAB><description>
 #   images.sh json            {"include":[{"image":"<name>","dir":"<dir>"}, ...]}
 #   images.sh resolve <x>     "<dir> <name>" for an image given by directory or name (error if unknown)
+#   images.sh context <dir>   the build context of an image directory (default: the directory)
 #
 # Can also be sourced (image_dirs, image_name, image_desc, image_json). REPO_ROOT overrides the
 # repository root (the tests use that).
@@ -34,9 +35,24 @@ image_name() {
 
 image_desc() { _env_var "$1" IMAGE_DESC; }
 
-image_json() {
+# IMAGE_KIND=list marks a data image (FROM scratch: the shared package list), "toolbox" is the default
+image_kind() { local k; k=$(_env_var "$1" IMAGE_KIND); echo "${k:-toolbox}"; }
+
+# Build context directory, relative to the repository root (default: the image directory itself;
+# BUILD_CONTEXT=. makes the whole repository the context, the Containerfile then names its paths)
+image_context() { local c; c=$(_env_var "$1" BUILD_CONTEXT); echo "${c:-$1}"; }
+
+# Other top-level directories whose files belong to this image (EXTRA_PATHS, space separated): a change
+# there rebuilds this image and is never "another image's directory" for the promote decision
+image_extra_paths() { _env_var "$1" EXTRA_PATHS; }
+
+# IMAGE_SCHEDULE=false: the weekly schedule does not rebuild this image
+image_scheduled() { [[ "$(_env_var "$1" IMAGE_SCHEDULE)" != "false" ]]; }
+
+image_json() { # [scheduled]: with an argument, leave out the images with IMAGE_SCHEDULE=false
     local d out="" sep=""
     for d in $(image_dirs); do
+        if [[ -n "${1:-}" ]] && ! image_scheduled "${d}"; then continue; fi
         out+="${sep}{\"image\":\"$(image_name "${d}")\",\"dir\":\"${d}\"}"
         sep=","
     done
@@ -62,6 +78,7 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
             ;;
         json) image_json ;;
         resolve) resolve_image "${2:?image}" ;;
-        *) echo "usage: images.sh list|json|resolve <image>" >&2; exit 2 ;;
+        context) image_context "${2:?dir}" ;;
+        *) echo "usage: images.sh list|json|resolve <image>|context <dir>" >&2; exit 2 ;;
     esac
 fi

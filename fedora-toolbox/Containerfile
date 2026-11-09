@@ -1,7 +1,10 @@
-# Build context is mounted, not copied into the final image
+# Build context is mounted, not copied into the final image. The context is the repository root
+# (BUILD_CONTEXT=. in image.env): the package list and its installer are shared with the published
+# dev-packages image and live in dev-packages/. Built from these in-repo files, never from the
+# published image (no chicken and egg).
 FROM scratch AS ctx
-COPY build_files /build_files
-COPY packages /packages
+COPY fedora-toolbox/build_files /build_files
+COPY dev-packages/dev.txt dev-packages/install.sh /dev-packages/
 
 # Base: Universal Blue's toolbox (github.com/ublue-os/toolboxes). Fedora 44, moving
 # `latest` tag only; Mesa comes from Terra. Renovate pins the digest.

@@ -96,6 +96,26 @@ names "alpha" "workflow_dispatch image=alpha: alpha" workflow_dispatch "" "" alp
 names "ERROR" "workflow_dispatch with unknown image fails" workflow_dispatch "" "" nope
 names "ERROR" "unknown event fails" release "" ""
 
+# IMAGE_SCHEDULE=false keeps an image out of the weekly schedule only; EXTRA_PATHS and BUILD_CONTEXT
+printf 'IMAGE_SCHEDULE=false\n' >> "${repo}/beta/image.env"
+mkdir -p "${repo}/shared"
+printf 'IMAGE_NAME=alpha\nEXTRA_PATHS=shared other\nBUILD_CONTEXT=.\n' > "${repo}/alpha/image.env"
+g add -A
+g commit -q -m "image.env settings"
+c9b=$(g rev-parse HEAD)
+names "alpha" "weekly schedule skips IMAGE_SCHEDULE=false" schedule "" ""
+names "alpha beta-image" "workflow_dispatch builds an unscheduled image too" workflow_dispatch "" "" ""
+names "beta-image" "workflow_dispatch can name an unscheduled image" workflow_dispatch "" "" beta
+c9c=$(commit_change shared/list.txt)
+names "alpha" "a change in an EXTRA_PATHS directory builds the image that lists it" push "${c9b}" "${c9c}"
+c9d=$(commit_change beta/x.txt)
+names "beta-image" "an unrelated image directory builds only that image" push "${c9c}" "${c9d}"
+ctx=$(REPO_ROOT="${repo}" "${repo}/.github/scripts/images.sh" context alpha)
+if [[ "${ctx}" == "." ]]; then ok "images.sh context: BUILD_CONTEXT=. is the repository root"; else bad "context alpha: ${ctx}"; fi
+ctx=$(REPO_ROOT="${repo}" "${repo}/.github/scripts/images.sh" context beta)
+if [[ "${ctx}" == "beta" ]]; then ok "images.sh context: default is the image directory"; else bad "context beta: ${ctx}"; fi
+g reset -q --hard "${c9}"
+
 # A removed image directory is not built
 g rm -q -r alpha
 g commit -q -m "remove alpha"
@@ -109,6 +129,18 @@ case "${real}" in
     *"fedora-toolbox fedora-toolbox"*) ok "real repo: fedora-toolbox/ publishes as fedora-toolbox" ;;
     *) bad "real repo image list: ${real}" ;;
 esac
+
+case "${real}" in
+    *"dev-packages dev-packages"*) ok "real repo: dev-packages/ publishes as dev-packages" ;;
+    *) bad "real repo image list lacks dev-packages: ${real}" ;;
+esac
+sched=$(REPO_ROOT="${src}" "${src}/.github/scripts/plan-images.sh" schedule)
+case "${sched}" in
+    *dev-packages*) bad "real repo: the weekly schedule must not rebuild dev-packages: ${sched}" ;;
+    *) ok "real repo: the weekly schedule leaves dev-packages out" ;;
+esac
+ctx=$(REPO_ROOT="${src}" "${src}/.github/scripts/images.sh" context fedora-toolbox)
+if [[ "${ctx}" == "." ]]; then ok "real repo: fedora-toolbox builds with the repository root as context"; else bad "fedora-toolbox context: ${ctx}"; fi
 
 case "${real}" in
     *"fedora-gaming fedora-gaming"*) ok "real repo: fedora-gaming/ publishes as fedora-gaming" ;;
