@@ -180,6 +180,8 @@ reply repos_o_p_releases_latest v1.1.5
 printf 'UPSTREAM_REPO=o/p\nUPSTREAM_TAG=\nUPSTREAM_COMMIT=%s\n' "$(sha a)" > "${crepo}/img/upstream.env"
 reply repos_o_p_releases_latest 1.0.3 repos_o_p_commits_1.0.3 "$(sha d)" "repos_o_p_compare_$(sha a)...$(sha d)" behind
 [[ "$(chk)" == report* ]] && ok "check: a commit pin with only an older release reports and opens nothing" || bad "check commit pin behind: $(chk)"
+reply repos_o_p_releases_latest 1.1.0 repos_o_p_commits_1.1.0 "$(sha e)" "repos_o_p_compare_$(sha a)...$(sha e)" diverged
+[[ "$(chk)" == "bump 1.1.0 $(sha e)" ]] && ok "check: a tag that is not an ancestor of the pinned commit (diverged): bump" || bad "check commit pin diverged: $(chk)"
 reply repos_o_p_releases_latest 1.1.0 repos_o_p_commits_1.1.0 "$(sha e)" "repos_o_p_compare_$(sha a)...$(sha e)" ahead
 [[ "$(chk)" == "bump 1.1.0 $(sha e)" ]] && ok "check: a commit pin with a release ahead of it: bump" || bad "check commit pin ahead: $(chk)"
 reply repos_o_p_tags "1.2.0" repos_o_p_commits_1.2.0 "$(sha f)" "repos_o_p_compare_$(sha a)...$(sha f)" ahead

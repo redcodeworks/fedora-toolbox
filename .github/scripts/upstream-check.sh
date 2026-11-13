@@ -10,8 +10,8 @@
 #
 # Reads upstream.env (UPSTREAM_REPO, UPSTREAM_TAG, UPSTREAM_COMMIT). Tag pin: the latest release (not a draft or
 # pre-release) is newer when it sorts above the pinned tag by version. Commit pin (empty UPSTREAM_TAG): the latest
-# release, else the newest tag, counts only when its commit is AHEAD of the pinned commit (the compare API), so an
-# older release than the pin is never "newer". Only `gh api` reads; nothing is written.
+# release, else the newest tag, counts only when it is NOT an ancestor of (or equal to) the pinned commit (compare API status ahead or
+# diverged), so a release behind the pin, such as the one extest's pin sits one commit after, is never "newer". Only `gh api` reads; nothing is written.
 # shellcheck disable=SC2015  # the `A && B || C` form is used on purpose: C is the fail-soft answer
 set -uo pipefail
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -51,7 +51,7 @@ fi
 commit=$(commit_of "${latest}") && [[ "${commit}" =~ ^[0-9a-f]{40}$ ]] || { echo "unreachable cannot resolve ${repo} ${latest} to a commit"; exit 0; }
 status=$(gh api "repos/${repo}/compare/${UPSTREAM_COMMIT}...${commit}" --jq .status 2> /dev/null) || { echo "unreachable cannot compare ${repo} ${UPSTREAM_COMMIT:0:7} with ${latest}"; exit 0; }
 case "${status}" in
-    ahead) echo "bump ${latest} ${commit}" ;;
+    ahead | diverged) echo "bump ${latest} ${commit}" ;;
     identical) echo "current the pinned commit is ${latest}" ;;
     *) echo "report latest release ${latest} is ${status} of the pinned commit ${UPSTREAM_COMMIT:0:7}; nothing to bump" ;;
 esac
