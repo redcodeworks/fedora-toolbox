@@ -34,9 +34,9 @@ image = yaml.safe_load((root/".github/workflows/build-image.yml").read_text())
 on = build.get("on", build.get(True))
 imon = image.get("on", image.get(True))
 
-# triggers: push (testing, main), PR, one schedule, manual run; no workflow-level paths filter
+# triggers: push (testing, main), one schedule, manual run, no pull_request (tests/workflow-triggers.sh); no workflow-level paths filter
 r(set(on["push"]["branches"]) == {"main", "testing"}, "push to main and testing publishes")
-r("paths" not in on["push"] and "paths" not in on["pull_request"], "no workflow-level paths filter (it would leave required checks pending)")
+r("paths" not in on["push"] and "pull_request" not in on, "no workflow-level paths filter (it would leave required checks pending)")
 r("workflow_dispatch" in on and len(on["schedule"]) == 1, "manual run and exactly one schedule")
 r("workflow_call" in imon, "build-image.yml is the reusable workflow")
 
