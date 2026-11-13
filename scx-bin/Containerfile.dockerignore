@@ -1,5 +1,0 @@
-*
-!binary-build
-!scx-bin/upstream.env
-!scx-bin/schedulers.tsv
-!scx-bin/build.sh

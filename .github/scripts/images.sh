@@ -6,10 +6,6 @@
 #   images.sh json            {"include":[{"image":"<name>","dir":"<dir>"}, ...]}
 #   images.sh resolve <x>     "<dir> <name>" for an image given by directory or name (error if unknown)
 #   images.sh context <dir>   the build context of an image directory (default: the directory)
-#   images.sh kind <dir>      toolbox (default), list or binary
-#   images.sh dirs <kind>     the directories of that kind, one per line
-#   images.sh binary-files <dir>  the paths a binary image must carry (image.env BINARY_FILES, or bin/<name> for each line of schedulers.tsv plus schedulers.tsv)
-#   images.sh version-tag <dir>   the release tag of a binary image: UPSTREAM_TAG, or commit-<sha7> for a commit pin
 #   images.sh data-files <dir>  the <repo path>:<image path> pairs a list image must carry (image.env DATA_FILES)
 #
 # Can also be sourced (image_dirs, image_name, image_desc, image_json). REPO_ROOT overrides the
@@ -40,8 +36,7 @@ image_name() {
 
 image_desc() { _env_var "$1" IMAGE_DESC; }
 
-# IMAGE_KIND=list marks a data image (FROM scratch: the shared package list), binary a scratch image with binaries built
-# from a pinned upstream release (upstream.env), "toolbox" is the default
+# IMAGE_KIND=list marks a data image (FROM scratch: the shared package list), "toolbox" is the default
 image_kind() { local k; k=$(_env_var "$1" IMAGE_KIND); echo "${k:-toolbox}"; }
 
 # Build context directory, relative to the repository root (default: the image directory itself;
@@ -57,28 +52,6 @@ image_scheduled() { [[ "$(_env_var "$1" IMAGE_SCHEDULE)" != "false" ]]; }
 
 # DATA_FILES (list images): "<repo path>:<path in the image>" pairs, space separated; the build compares them
 image_data_files() { _env_var "$1" DATA_FILES | tr ' ' '\n' | sed '/^$/d'; }
-
-# BINARY_FILES (binary images): paths the image must carry, space separated
-# a directory with schedulers.tsv (scx-bin) derives them: bin/<name> per scheduler, so adding one needs no second edit
-image_binary_files() {
-    local f="${root}/$1/schedulers.tsv"
-    if [[ -f "${f}" ]]; then
-        grep -vE '^[[:space:]]*(#|$)' "${f}" | cut -f1 | sed 's#^#bin/#'
-        echo schedulers.tsv
-    else
-        _env_var "$1" BINARY_FILES | tr ' ' '\n' | sed '/^$/d'
-    fi
-}
-
-image_dirs_of_kind() { local d; for d in $(image_dirs); do [[ "$(image_kind "${d}")" == "$1" ]] && echo "${d}"; done; return 0; }
-
-# The version tag of a binary image: the upstream tag it is pinned to, or commit-<sha7> for a commit pin
-image_version_tag() {
-    # shellcheck source=../../binary-build/upstream-env.sh
-    source "${root}/binary-build/upstream-env.sh"
-    upstream_env_load "${root}/$1/upstream.env" || return 1
-    if [[ -n "${UPSTREAM_TAG}" ]]; then echo "${UPSTREAM_TAG}"; else echo "commit-${UPSTREAM_COMMIT:0:7}"; fi
-}
 
 image_json() { # [scheduled]: with an argument, leave out the images with IMAGE_SCHEDULE=false
     local d out="" sep=""
@@ -111,10 +84,6 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
         resolve) resolve_image "${2:?image}" ;;
         context) image_context "${2:?dir}" ;;
         data-files) image_data_files "${2:?dir}" ;;
-        kind) image_kind "${2:?dir}" ;;
-        dirs) image_dirs_of_kind "${2:?kind}" ;;
-        binary-files) image_binary_files "${2:?dir}" ;;
-        version-tag) image_version_tag "${2:?dir}" ;;
-        *) echo "usage: images.sh list|json|resolve <image>|context <dir>|data-files <dir>|kind <dir>|dirs <kind>|binary-files <dir>|version-tag <dir>" >&2; exit 2 ;;
+        *) echo "usage: images.sh list|json|resolve <image>|context <dir>|data-files <dir>" >&2; exit 2 ;;
     esac
 fi
