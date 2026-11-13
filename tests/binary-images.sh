@@ -3,7 +3,7 @@
 # the commit-SHA verification of the checkout, the scratch layout, the weekly upstream check (equal, newer, bump PR
 # already open, upstream unreachable) and the workflow triggers. Local git repositories and a stub gh; no network.
 # Needs: bash, git, python3 with PyYAML, readelf and ldd (binutils, libc). Run: tests/binary-images.sh
-# shellcheck disable=SC2015,SC2016
+# shellcheck disable=SC2001,SC2015,SC2016,SC2034
 set -uo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
