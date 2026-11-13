@@ -295,23 +295,26 @@ echo "gh $*" >> "${GH_LOG}"
 case "$1 $2" in
     "pr list") cat "${PR_LIST:-/dev/null}" ;;
     "pr create"|"pr edit") exit 0 ;;
+    "workflow run") [[ -z "${GH_WF_FAIL:-}" ]] ;;
     *) exit 99 ;;
 esac
 STUB
-bump() { PR_LIST="${tmp}/prlist" PATH="${tmp}/bin:${PATH}" REPO_ROOT="${wc}" BUMP_TOKEN_SET="${TOKEN:-false}" "${wc}/.github/scripts/bump-pr.sh" img "$@" > "${tmp}/bump.log" 2>&1; }
+bump() { PR_LIST="${tmp}/prlist" PATH="${tmp}/bin:${PATH}" REPO_ROOT="${wc}" "${wc}/.github/scripts/bump-pr.sh" img "$@" > "${tmp}/bump.log" 2>&1; }
 : > "${tmp}/prlist"; : > "${GH_LOG}"
 bump v1.1.5 "$(sha b)" && ok "bump: a new PR is opened" || bad "bump new: $(cat "${tmp}/bump.log")"
 grep -q '^gh pr create --base testing --head bump/img-bin --title Bump img-bin to v1.1.5' "${GH_LOG}" && ok "bump: PR from bump/<image> into testing, titled with the version" || bad "bump create call: $(cat "${GH_LOG}")"
 body=$(cat "${GH_LOG}")
 [[ "${body}" == *"releases/tag/v1.1.5"* && "${body}" == *"compare/v1.1.4...v1.1.5"* ]] && ok "bump: body links the release notes and the compare URL" || bad "bump body"
-[[ "${body}" == *"closing and reopening"* ]] && ok "bump: without BUMP_TOKEN the body says how to start the checks" || bad "bump body note"
-: > "${GH_LOG}"; : > "${tmp}/prlist"; TOKEN=true bump v1.1.5 "$(sha b)" 2> /dev/null
+[[ "${body}" == *"gh workflow run test.yml --ref bump/img-bin"* ]] && ok "bump: the body says how to start the checks by hand" || bad "bump body note"
+grep -qx 'gh workflow run test.yml --ref bump/img-bin' "${GH_LOG}" && ok "bump: the Test workflow is dispatched on the bump branch after the PR is created" || bad "bump dispatch: $(cat "${GH_LOG}")"
+: > "${GH_LOG}"; : > "${tmp}/prlist"; GH_WF_FAIL=1 bump v1.1.5 "$(sha b)"; rc=$?
+[[ ${rc} -eq 0 && "$(cat "${tmp}/bump.log")" == *"Could not dispatch the Test workflow on bump/img-bin"* ]] && ok "bump: a failed dispatch is a warning, not a failure" || bad "bump dispatch failure (rc ${rc}): $(cat "${tmp}/bump.log")"
 [[ "$(git -C "${origin}" show bump/img-bin:img/upstream.env | grep -c "$(sha b)")" == 1 ]] && ok "bump: the branch carries the new pin" || bad "bump branch content"
 [[ "$(git -C "${origin}" diff --name-only testing bump/img-bin)" == "img/upstream.env" ]] && ok "bump: only upstream.env changes" || bad "bump diff: $(git -C "${origin}" diff --name-only testing bump/img-bin)"
 printf '{"number":7,"title":"Bump img-bin to v1.1.5"}\n' > "${tmp}/prlist"; : > "${GH_LOG}"
-bump v1.1.5 "$(sha b)" && ! grep -qE '^gh pr (create|edit)' "${GH_LOG}" && ok "bump: a PR for that version is already open: nothing happens" || bad "bump already open"
+bump v1.1.5 "$(sha b)" && ! grep -qE '^gh (pr (create|edit)|workflow run)' "${GH_LOG}" && ok "bump: a PR for that version is already open: nothing happens, no dispatch" || bad "bump already open"
 printf '{"number":7,"title":"Bump img-bin to v1.1.5"}\n' > "${tmp}/prlist"; : > "${GH_LOG}"
-bump v1.1.6 "$(sha c)" && grep -q '^gh pr edit 7 --title Bump img-bin to v1.1.6' "${GH_LOG}" && ok "bump: a PR for an older version is updated, not duplicated" || bad "bump update: $(cat "${tmp}/bump.log")"
+bump v1.1.6 "$(sha c)" && grep -q '^gh pr edit 7 --title Bump img-bin to v1.1.6' "${GH_LOG}" && grep -qx 'gh workflow run test.yml --ref bump/img-bin' "${GH_LOG}" && ok "bump: a PR for an older version is updated, not duplicated, and the checks are dispatched again" || bad "bump update: $(cat "${tmp}/bump.log")"
 [[ "$(git -C "${origin}" log --format=%s testing..bump/img-bin | wc -l)" -ge 2 && "$(git -C "${origin}" show bump/img-bin:img/upstream.env | grep -c "$(sha c)")" == 1 ]] && ok "bump: the update is a new commit on the same branch (no force-push)" || bad "bump update commit"
 ! git -C "${origin}" log --format=%B bump/img-bin | grep -qi 'co-authored-by' && ok "bump: no commit trailers" || bad "bump trailer"
 
@@ -335,8 +338,12 @@ up = yaml.safe_load((wf / "upstream-check.yml").read_text()); on = up.get("on", 
 r(on["schedule"] == [{"cron": "0 7 * * 1"}] and "workflow_dispatch" in on and "push" not in on and "pull_request" not in on, "upstream-check.yml: Monday 07:00 UTC plus manual dispatch only")
 text = (wf / "upstream-check.yml").read_text()
 r("packages: write" not in text and "podman" not in text and "cosign" not in text and "ghcr.io" not in text, "upstream-check.yml: publishes nothing")
-r(up["permissions"] == {"contents": "write", "pull-requests": "write"}, "upstream-check.yml: contents and pull-requests write only")
-r("secrets.BUMP_TOKEN || secrets.GITHUB_TOKEN" in text and "BUMP_TOKEN_SET" in text, "upstream-check.yml: BUMP_TOKEN when set, else the default token")
+r("BUMP_TOKEN" not in text and "secrets.GITHUB_TOKEN" in text, "upstream-check.yml: only the default GITHUB_TOKEN, no personal token")
+r(up["permissions"] == {"contents": "write", "pull-requests": "write", "actions": "write"}, "upstream-check.yml: contents, pull-requests and actions write only (actions for the dispatch)")
+bp = (root / ".github/scripts/bump-pr.sh").read_text()
+r("gh workflow run test.yml --ref" in bp and "BUMP_TOKEN" not in bp and "reopen" not in bp, "bump-pr.sh: dispatches the Test workflow on the branch, no token or reopen workaround")
+tw = yaml.safe_load((wf / "test.yml").read_text()); ton = tw.get("on", tw.get(True))
+r("workflow_dispatch" in ton and set(tw["jobs"]) == {"test", "secrets"} and all("if" not in j for j in tw["jobs"].values()), "test.yml: dispatchable, jobs test and secrets without conditions, so a dispatched run reports the same checks")
 r("gh repo sync" in text and "forkbehind" in text, "upstream-check.yml: a fork behind upstream is a notice and a summary line telling to sync it, not a failure")
 r("echo ${{ secrets" not in text and "echo \"${GH_TOKEN}\"" not in text, "upstream-check.yml: no token is printed")
 r(up["jobs"]["check"]["name"] == "Check upstream releases", "upstream-check.yml: its job name is not a required check name")

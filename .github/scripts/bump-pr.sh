@@ -6,8 +6,11 @@
 # Changes only UPSTREAM_TAG and UPSTREAM_COMMIT in <image-dir>/upstream.env. If a PR for exactly this version is already
 # open nothing happens. If one for an older version is open, the branch gets one more commit (never a force-push) and
 # the PR title and body are updated. Never publishes anything. Needs git (origin = this repository), gh and GH_TOKEN.
-# BUMP_TOKEN_SET=true says the token is the BUMP_TOKEN secret (pushes made with it start the test workflow);
-# otherwise the PR says that the checks must be started by hand (pushes made with the default GITHUB_TOKEN start nothing).
+# Everything is done with the default GITHUB_TOKEN. Pushes and PRs made with it start no push or pull_request workflow, but
+# workflow_dispatch is allowed, so after the push and the PR the `Test` workflow is dispatched on the bump branch
+# (gh workflow run test.yml --ref bump/<image>); its checks `test` and `secrets` attach to the branch tip and so to the PR.
+# UNVERIFIED on GitHub until the first real bump: whether a dispatched run satisfies the required checks on the PR.
+# A failed dispatch is a warning, not a failure (the PR body says how to start the checks by hand).
 # Committer identity comes from the environment (the workflow sets it); no commit trailers are added.
 set -euo pipefail
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -50,7 +53,9 @@ else
 fi
 upstream_env_set "${file}" "${new_tag}" "${new_commit}"
 git add -- "${file}"
-git commit -q -m "Bump ${name} to ${new_tag}: upstream released it; the build checks the tag still resolves to ${new_commit:0:7}"
+if git diff --cached --quiet; then echo "${branch} already carries this pin"; else
+    git commit -q -m "Bump ${name} to ${new_tag}: upstream released it; the build checks the tag still resolves to ${new_commit:0:7}"
+fi
 git push -q origin "refs/heads/${branch}:refs/heads/${branch}"
 
 from=${old_tag:-${old_commit}}
@@ -61,15 +66,22 @@ body="Upstream ${repo} has a newer release than the pin of \`${name}\`.
 - Changes: https://github.com/${repo}/compare/${from}...${new_tag}
 
 Only \`${file}\` changes.${fork_note} The merge into \`${base}\` builds and publishes the \`testing\` image of \`${name}\`; the build fails if the tag does not resolve to the pinned commit. Not verified: nothing is built or run by this PR; a BPF scheduler can only be loaded on a real machine."
-if [[ "${BUMP_TOKEN_SET:-false}" != "true" ]]; then
-    body+="
+body+="
 
-The checks did not start on their own: this PR was opened with the default GITHUB_TOKEN, and pushes made with it trigger no workflows. Start them by closing and reopening this PR, or run the \`Test\` workflow on the branch \`${branch}\` (Actions, Run workflow). A repository secret \`BUMP_TOKEN\` (a token limited to this repository with Contents and Pull requests write) makes this automatic."
-fi
+Checks: the upstream-check workflow dispatches the \`Test\` workflow on the branch \`${branch}\`, so \`test\` and \`secrets\` run on this PR's head commit. If they do not appear, start them by hand: \`gh workflow run test.yml --ref ${branch}\`. (Unverified until the first real bump: whether a dispatched run satisfies the required checks.)"
 
 if [[ -n "${open}" ]]; then
     gh pr edit "$(jq -r .number <<<"${open}")" --title "${title}" --body "${body}"
     echo "Updated the open bump PR #$(jq -r .number <<<"${open}") to ${new_tag}"
 else
     gh pr create --base "${base}" --head "${branch}" --title "${title}" --body "${body}"
+fi
+
+# start the required checks on the branch tip (events made with GITHUB_TOKEN start none by themselves)
+if gh workflow run test.yml --ref "${branch}"; then
+    echo "Dispatched the Test workflow on ${branch}"
+else
+    msg="Could not dispatch the Test workflow on ${branch}: start it by hand with: gh workflow run test.yml --ref ${branch}"
+    echo "::warning::${msg}"
+    [[ -z "${GITHUB_STEP_SUMMARY:-}" ]] || echo "- ${msg}" >> "${GITHUB_STEP_SUMMARY}"
 fi
