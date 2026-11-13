@@ -4,8 +4,8 @@
 #   build.sh <schedulers.tsv> <upstream.env> <source dir> <out dir>
 #
 # One cargo invocation for all of them: cargo build --release --locked -p <a> -p <b> ... Then stage.sh installs
-# target/release/<name> as /bin/<name>, copies the LICENSE of the scheduler's directory (found under scheds/) next to the
-# repository LICENSE, and runs <name> --version. Finally /schedulers.tsv is written: one line per scheduler, FOUR tab
+# target/release/<name> as /bin/<name>, copies the LICENSE of the scheduler's directory (found under scheds/, when it has
+# one) next to the repository LICENSE, and runs <name> --version. Finally /schedulers.tsv is written: one line per scheduler, FOUR tab
 # separated fields, no header, in the order of the source file:  name  binary path  minimum kernel  description
 # (minimum kernel may be empty; the other fields never are). Adding a scheduler is a line in schedulers.tsv, not code.
 set -euo pipefail
@@ -35,7 +35,13 @@ for row in "${rows[@]}"; do
     args+=(--bin "target/release/${n}:bin/${n}" --smoke "bin/${n}:--version")
     sdir=$(find "${srcdir}/scheds" -mindepth 2 -maxdepth 2 -type d -name "${n}" | head -n1)
     [[ -n "${sdir}" ]] || { echo "build.sh: ${n} is not a scheduler directory under scheds/ of the source" >&2; exit 1; }
-    args+=(--license "${sdir#"${srcdir}/"}/LICENSE:${n}-LICENSE")
+    # most scheduler directories carry their own LICENSE (copied next to the repository LICENSE); scx_cake's does not, and the
+    # repository LICENSE (GPL-2.0) covers it, so a missing file is a note, not an error
+    if [[ -s "${sdir}/LICENSE" ]]; then
+        args+=(--license "${sdir#"${srcdir}/"}/LICENSE:${n}-LICENSE")
+    else
+        echo "build.sh: ${n} has no LICENSE of its own; the repository LICENSE covers it"
+    fi
     manifest+=("$(printf '%s\t%s\t%s\t%s' "${n}" "bin/${n}" "${kernel}" "${desc}")")
 done
 
