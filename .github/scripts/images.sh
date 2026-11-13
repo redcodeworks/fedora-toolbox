@@ -6,6 +6,7 @@
 #   images.sh json            {"include":[{"image":"<name>","dir":"<dir>"}, ...]}
 #   images.sh resolve <x>     "<dir> <name>" for an image given by directory or name (error if unknown)
 #   images.sh context <dir>   the build context of an image directory (default: the directory)
+#   images.sh data-files <dir>  the <repo path>:<image path> pairs a list image must carry (image.env DATA_FILES)
 #
 # Can also be sourced (image_dirs, image_name, image_desc, image_json). REPO_ROOT overrides the
 # repository root (the tests use that).
@@ -49,6 +50,9 @@ image_extra_paths() { _env_var "$1" EXTRA_PATHS; }
 # IMAGE_SCHEDULE=false: the weekly schedule does not rebuild this image
 image_scheduled() { [[ "$(_env_var "$1" IMAGE_SCHEDULE)" != "false" ]]; }
 
+# DATA_FILES (list images): "<repo path>:<path in the image>" pairs, space separated; the build compares them
+image_data_files() { _env_var "$1" DATA_FILES | tr ' ' '\n' | sed '/^$/d'; }
+
 image_json() { # [scheduled]: with an argument, leave out the images with IMAGE_SCHEDULE=false
     local d out="" sep=""
     for d in $(image_dirs); do
@@ -79,6 +83,7 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
         json) image_json ;;
         resolve) resolve_image "${2:?image}" ;;
         context) image_context "${2:?dir}" ;;
-        *) echo "usage: images.sh list|json|resolve <image>|context <dir>" >&2; exit 2 ;;
+        data-files) image_data_files "${2:?dir}" ;;
+        *) echo "usage: images.sh list|json|resolve <image>|context <dir>|data-files <dir>" >&2; exit 2 ;;
     esac
 fi

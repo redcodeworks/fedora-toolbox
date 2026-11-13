@@ -13,7 +13,7 @@ fail=0
 err() { echo "lint: $*" >&2; fail=1; }
 
 shopt -s nullglob
-scripts=(.github/scripts/*.sh tests/*.sh ./*/build_files/*.sh ./*/tests/*.sh ./dev-packages/install.sh ./*/stack/bin/* ./*/bin/*)
+scripts=(.github/scripts/*.sh tests/*.sh ./*/build_files/*.sh ./*/tests/*.sh ./package-installer/install.sh ./*/stack/bin/* ./*/bin/*)
 bash -n "${scripts[@]}" || fail=1
 if command -v shellcheck >/dev/null; then
     shellcheck -x -P SCRIPTDIR "${scripts[@]}" || fail=1
@@ -31,15 +31,20 @@ for d in $(image_dirs); do
     if [[ "${kind}" == "list" ]]; then
         # data image: the shared package list and its installer, FROM scratch, no toolbox parts
         grep -qE '^FROM scratch$' "${d}/Containerfile" || err "${d}/Containerfile: a list image is FROM scratch"
-        [[ -x "${d}/install.sh" ]] || err "${d}/install.sh missing or not executable"
+        [[ -x "package-installer/install.sh" ]] || err "package-installer/install.sh missing or not executable"
         [[ -f "${d}/README.md" ]] || err "${d}/README.md missing"
-        lists=("${d}/dev.txt")
+        # the lists are the .txt files of the directory (dna-packages has two: core and optional)
+        lists=("${d}"/*.txt)
+        [[ -n "$(image_data_files "${d}")" ]] || err "${d}/image.env: DATA_FILES missing (the build checks the image against the repository)"
+        while IFS=: read -r srcpath _; do
+            [[ -f "${srcpath}" ]] || err "${d}/image.env: DATA_FILES names ${srcpath}, which does not exist"
+        done < <(image_data_files "${d}")
     else
         [[ -x "${d}/tests/smoke.sh" ]] || err "${d}/tests/smoke.sh missing or not executable"
         [[ -f "${d}/build_files/build.sh" ]] || err "${d}/build_files/build.sh missing"
         lists=("${d}"/packages/*.txt)
-        # an image that installs the shared list (EXTRA_PATHS has dev-packages) has no list of its own
-        if [[ ${#lists[@]} -eq 0 && " $(image_extra_paths "${d}") " != *" dev-packages "* ]]; then
+        # an image that installs a shared manifest (EXTRA_PATHS has a <x>-packages directory) has no list of its own
+        if [[ ${#lists[@]} -eq 0 && "$(image_extra_paths "${d}") " != *-packages\ * ]]; then
             err "${d}/packages/*.txt missing"
         fi
     fi

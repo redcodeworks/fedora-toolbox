@@ -6,8 +6,10 @@ Ready-made development and gaming containers for [distrobox](https://distrobox.i
 |---|---|
 | [`fedora-toolbox`](fedora-toolbox/) | Development box: compilers and build tools, common `-devel` libraries, `uv`, `rustup`, `fish` (list: [`dev.txt`](dev-packages/dev.txt)) |
 | [`dev-packages`](dev-packages/) | Not a box: the developer package list above and its installer as a small signed image, so other Fedora-based images can install the same tools (see its README) |
-| [`fedora-gaming`](fedora-gaming/) | Gaming box: Steam, gamescope, MangoHud, GameMode on Fedora's Mesa (list: [`gaming.txt`](fedora-gaming/packages/gaming.txt)) |
+| [`fedora-gaming`](fedora-gaming/) | Gaming box: Steam, gamescope, MangoHud, GameMode on Fedora's Mesa (list: [`gaming.txt`](gaming-packages/gaming.txt)) |
+| [`gaming-packages`](gaming-packages/) | Not a box: the gaming package list and its installer as a small signed image, for other Fedora-based images (see its README) |
 | [`dna-toolbox`](dna-toolbox/) | Data, analytics and AI box: Python and JVM data tooling, GPU toolkits (ROCm or CUDA) installed on demand with `dna-gpu`, plus `dna-stack` to start lakehouse server containers (Postgres, SeaweedFS, Lakekeeper, Trino, and more) on your host from the box; the heavier services (Kafka Connect, Airflow, Superset) are built on your machine the first time you start them; work in progress |
+| [`dna-packages`](dna-packages/) | Not a box: the package lists of `dna-toolbox` and their installer as a small signed image, for other Fedora-based images (see its README) |
 
 ## Requirements
 
@@ -34,7 +36,7 @@ cosign verify --key cosign.pub ghcr.io/redcodeworks/fedora-toolbox:latest
 
 ## Contributing
 
-Issues and pull requests are welcome, though I only maintain this for my own use. Work on the `testing` branch and open a pull request into `main`. `just list` shows the images, `just lint` checks the repo, and `just new-image <name>` starts a new one.
+Issues and pull requests are welcome, though I only maintain this for my own use. Work on a branch and open a pull request into `testing`; changes reach `main` in a later pull request from `testing`. `just list` shows the images, `just lint` checks the repo, and `just new-image <name>` starts a new one.
 
 ## License
 
