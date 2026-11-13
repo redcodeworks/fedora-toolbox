@@ -2,6 +2,7 @@
 # Tests .github/scripts/push-tags.sh (one podman push, every other tag a registry-side copy of its digest) with stub
 # podman and skopeo, and that the image workflow publishes through it and never push an image twice.
 # Run: tests/push-tags.sh
+# shellcheck disable=SC2015,SC2016,SC2181  # the A && pass || bad test idiom, literal patterns, $? checks
 set -uo pipefail
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 script="$here/.github/scripts/push-tags.sh"
