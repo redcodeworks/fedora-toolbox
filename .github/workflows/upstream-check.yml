@@ -1,7 +1,7 @@
 ---
 name: Check upstream releases
 # Weekly: for every binary image (IMAGE_KIND=binary: scx-bin, extest-bin) ask upstream for its latest release and, when it is
-# newer than the pin in <image>/upstream.env, open or update ONE bump pull request on the branch bump/<image> into
+# newer than the pin in <image>/upstream.env (extest-bin: asked of the real project, and only once our fork has the commit), open or update ONE bump pull request on the branch bump/<image> into
 # `testing`. It changes only upstream.env; nothing is built or published here. Scheduled workflows run from main only, so
 # the first scheduled run follows the first promotion that carries this file.
 #
@@ -62,6 +62,11 @@ jobs:
                   echo "::error::could not open or update the bump PR for ${dir}"
                   failed=1
                 fi
+                ;;
+              forkbehind)
+                fork=$(sed -n 's/^UPSTREAM_REPO=//p' "${dir}/upstream.env")
+                echo "::notice::${dir}: the fork ${fork} is behind upstream: sync it (gh repo sync ${fork}) and rerun"
+                echo "- \`${dir}\`: the fork ${fork} is behind upstream: sync it (\`gh repo sync ${fork}\`) and rerun" >> "${GITHUB_STEP_SUMMARY}"
                 ;;
               unreachable) echo "::warning::${dir}: ${decision}" ;;
               *) echo "::notice::${dir}: nothing to bump (${decision})" ;;

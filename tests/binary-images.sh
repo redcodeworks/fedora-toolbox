@@ -3,7 +3,7 @@
 # the commit-SHA verification of the checkout, the scratch layout, the weekly upstream check (equal, newer, bump PR
 # already open, upstream unreachable) and the workflow triggers. Local git repositories and a stub gh; no network.
 # Needs: bash, git, python3 with PyYAML, readelf and ldd (binutils, libc). Run: tests/binary-images.sh
-# shellcheck disable=SC2001,SC2015,SC2016,SC2034
+# shellcheck disable=SC2001,SC2013,SC2015,SC2016,SC2034
 set -uo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -28,16 +28,20 @@ sched=$(REPO_ROOT="${src}" "${src}/.github/scripts/plan-images.sh" schedule)
 for n in scx-bin extest-bin; do [[ "${sched}" != *"\"${n}\""* ]] && ok "the weekly schedule leaves ${n} out" || bad "the weekly schedule rebuilds ${n}"; done
 [[ "$(REPO_ROOT="${src}" "${images}" version-tag scx-bin)" == "v1.1.4" ]] && ok "version tag of a tag pin is the upstream tag" || bad "scx version tag: $(REPO_ROOT="${src}" "${images}" version-tag scx-bin)"
 [[ "$(REPO_ROOT="${src}" "${images}" version-tag extest-bin)" == "commit-cb77cd4" ]] && ok "version tag of a commit pin is commit-<sha7>" || bad "extest version tag"
-[[ "$(REPO_ROOT="${src}" "${images}" binary-files scx-bin | tr '\n' ' ')" == "bin/scx_rusty bin/scx_lavd " ]] && ok "scx-bin must carry bin/scx_rusty and bin/scx_lavd" || bad "scx binary files"
+[[ "$(REPO_ROOT="${src}" "${images}" binary-files scx-bin | tr '\n' ' ')" == "bin/scx_rusty bin/scx_lavd bin/scx_cake bin/scx_bpfland bin/scx_cosmos bin/scx_flash bin/scx_p2dq schedulers.tsv " ]] && ok "scx-bin must carry the seven /bin/<name> binaries and /schedulers.tsv" || bad "scx binary files: $(REPO_ROOT="${src}" "${images}" binary-files scx-bin | tr '\n' ' ')"
 [[ "$(REPO_ROOT="${src}" "${images}" binary-files extest-bin | tr '\n' ' ')" == "lib64/libextest.so lib/libextest.so " ]] && ok "extest-bin must carry lib64/libextest.so and lib/libextest.so" || bad "extest binary files"
 
 # --- pins and build commands of the real images
 # shellcheck source=/dev/null
 . "${src}/binary-build/upstream-env.sh"
 upstream_env_load "${src}/scx-bin/upstream.env" && [[ "${UPSTREAM_REPO}" == sched-ext/scx && -n "${UPSTREAM_TAG}" ]] && ok "scx-bin pins a tag of sched-ext/scx" || bad "scx upstream.env"
-upstream_env_load "${src}/extest-bin/upstream.env" && [[ "${UPSTREAM_REPO}" == Supreeeme/extest && -z "${UPSTREAM_TAG}" && "${UPSTREAM_COMMIT}" == cb77cd4f80f83393a24bae17dd975e14fa6eb1b2 ]] && ok "extest-bin pins the commit cb77cd4f, no tag" || bad "extest upstream.env"
+upstream_env_load "${src}/extest-bin/upstream.env" && [[ "${UPSTREAM_REPO}" == redcodeworks/extest && "${UPSTREAM_WATCH}" == Supreeeme/extest && -z "${UPSTREAM_TAG}" && "${UPSTREAM_COMMIT}" == cb77cd4f80f83393a24bae17dd975e14fa6eb1b2 ]] && ok "extest-bin builds from the fork redcodeworks/extest, pins the commit cb77cd4f, follows Supreeeme/extest" || bad "extest upstream.env"
+upstream_env_load "${src}/scx-bin/upstream.env" && [[ "${UPSTREAM_WATCH}" == "${UPSTREAM_REPO}" ]] && ok "scx-bin watches the repository it builds from (no fork)" || bad "scx watch"
 grep -q '^(cd "${srcdir}" && cargo build --release --locked "${pkgs\[@\]}")$' "${src}/scx-bin/build.sh" && ok "scx-bin builds its schedulers with cargo build --release --locked -p <each>" || bad "scx cargo command"
-[[ "$(sed -e 's/[[:space:]]*#.*$//' -e '/^$/d' "${src}/scx-bin/schedulers.txt" | tr '\n' ' ')" == "scx_rusty scx_lavd " ]] && ok "scx-bin schedulers.txt lists scx_rusty and scx_lavd" || bad "schedulers.txt"
+tsv="${src}/scx-bin/schedulers.tsv"
+[[ "$(grep -vE '^[[:space:]]*(#|$)' "${tsv}" | cut -f1 | tr '\n' ' ')" == "scx_rusty scx_lavd scx_cake scx_bpfland scx_cosmos scx_flash scx_p2dq " ]] && ok "scx-bin schedulers.tsv lists the seven schedulers" || bad "schedulers.tsv names"
+badrows=$(grep -vE '^[[:space:]]*(#|$)' "${tsv}" | awk -F'\t' 'NF != 3 || $3 == "" || length($3) > 120 || ($2 != "" && $2 !~ /^[0-9]+\.[0-9]+$/) {print $1}')
+[[ -z "${badrows}" ]] && ok "schedulers.tsv: three fields per row, a description of at most 120 characters, a MAJOR.MINOR kernel or none" || bad "schedulers.tsv rows: ${badrows}"
 grep -qx 'RUN cargo build --release --locked --target x86_64-unknown-linux-gnu' "${src}/extest-bin/Containerfile" && ok "extest-bin builds the 64-bit library like the octarine-os recipe (--locked, x86_64 target)" || bad "extest cargo command 64"
 grep -qx 'RUN cargo build --release --locked --target i686-unknown-linux-gnu' "${src}/extest-bin/Containerfile" && ok "extest-bin builds the 32-bit library (--locked, i686 target)" || bad "extest cargo command 32"
 grep -q 'target/x86_64-unknown-linux-gnu/release/libextest.so:lib64/libextest.so' "${src}/extest-bin/Containerfile" && grep -q 'target/i686-unknown-linux-gnu/release/libextest.so:lib/libextest.so' "${src}/extest-bin/Containerfile" && ok "extest-bin installs the x86_64 build as lib64/libextest.so and the i686 build as lib/libextest.so" || bad "extest install paths"
@@ -105,6 +109,11 @@ for tc in "short commit:$(sed 's/UPSTREAM_COMMIT=.*/UPSTREAM_COMMIT=abc123/' <<<
     w bad.env "${tc#*:}"
     (upstream_env_load "${tmp}/bad.env" > /dev/null 2>&1) && bad "parser accepts: ${tc%%:*}" || ok "parser rejects: ${tc%%:*}"
 done
+(upstream_env_load "${tmp}/good.env" 2> /dev/null && [[ "${UPSTREAM_WATCH}" == a/b ]]) && ok "parser: UPSTREAM_WATCH defaults to UPSTREAM_REPO" || bad "parser: watch default"
+w wf.env "${good}"$'\nUPSTREAM_WATCH=up/stream'
+(upstream_env_load "${tmp}/wf.env" 2> /dev/null && [[ "${UPSTREAM_REPO}" == a/b && "${UPSTREAM_WATCH}" == up/stream ]]) && ok "parser: UPSTREAM_WATCH names the project the weekly check follows" || bad "parser: watch"
+w wb.env "${good}"$'\nUPSTREAM_WATCH=nonsense'
+(upstream_env_load "${tmp}/wb.env" > /dev/null 2>&1) && bad "parser accepts a bad UPSTREAM_WATCH" || ok "parser rejects a bad UPSTREAM_WATCH"
 cp "${tmp}/good.env" "${tmp}/set.env"
 upstream_env_set "${tmp}/set.env" v9.9.9 "$(sha c)" && grep -qx "UPSTREAM_TAG=v9.9.9" "${tmp}/set.env" && grep -qx "UPSTREAM_REPO=a/b" "${tmp}/set.env" && ok "upstream_env_set rewrites tag and commit only" || bad "upstream_env_set"
 upstream_env_set "${tmp}/set.env" v9 short 2> /dev/null && bad "upstream_env_set accepts a short commit" || ok "upstream_env_set refuses a bad commit"
@@ -130,6 +139,13 @@ fetch v1 "${c2}" && bad "fetch: a tag that does not match the pin must fail" || 
 fetch "" "${c2}" && ok "fetch: a commit pin at a fetchable commit" || bad "fetch commit pin: $(cat "${tmp}/fetch.log")"
 fetch v1 0000000000000000000000000000000000000000 && bad "fetch: a wrong commit must fail" || ok "fetch: a pin that is not the tag's commit fails"
 fetch nosuchtag "${c1}" && bad "fetch: a missing tag must fail" || ok "fetch: a missing tag fails"
+# a fork (UPSTREAM_WATCH differs): the tag is only a label, so a tag the fork does not have is fine and the commit decides
+printf 'UPSTREAM_REPO=o/p\nUPSTREAM_WATCH=real/project\nUPSTREAM_TAG=1.2.0\nUPSTREAM_COMMIT=%s\n' "${c2}" > "${tmp}/f.env"
+rm -rf "${tmp}/co"
+UPSTREAM_BASE_URL="file://${tmp}/up" "${src}/binary-build/fetch-source.sh" "${tmp}/f.env" "${tmp}/co" > "${tmp}/fetch.log" 2>&1 && [[ "$(git -C "${tmp}/co" rev-parse HEAD)" == "${c2}" ]] && ok "fetch: from a fork the pinned commit is fetched; the tag is a label the fork need not have" || bad "fetch fork label: $(cat "${tmp}/fetch.log")"
+printf 'UPSTREAM_REPO=o/p\nUPSTREAM_WATCH=real/project\nUPSTREAM_TAG=1.2.0\nUPSTREAM_COMMIT=%s\n' "$(sha e)" > "${tmp}/f.env"
+rm -rf "${tmp}/co"
+UPSTREAM_BASE_URL="file://${tmp}/up" "${src}/binary-build/fetch-source.sh" "${tmp}/f.env" "${tmp}/co" > "${tmp}/fetch.log" 2>&1 && bad "fetch: a fork commit that is not the pin must fail" || ok "fetch: from a fork a commit the fork does not have fails"
 
 # --- stage.sh: layout, SOURCE, BUILDINFO, smoke test
 sdir="${tmp}/srcdir"
@@ -139,7 +155,7 @@ echo "license text" > "${sdir}/lic/LICENSE"
 stage() { rm -rf "${tmp}/out"; "${src}/binary-build/stage.sh" --out "${tmp}/out" --env "${tmp}/good.env" --src "${sdir}" "$@" > "${tmp}/stage.log" 2>&1; }
 stage --bin target/release/tool:bin/tool --license lic/LICENSE:up-LICENSE --smoke bin/tool:--version && ok "stage: succeeds" || bad "stage: $(cat "${tmp}/stage.log")"
 [[ -x "${tmp}/out/bin/tool" && -s "${tmp}/out/LICENSES/up-LICENSE" && -s "${tmp}/out/SOURCE" && -s "${tmp}/out/BUILDINFO" ]] && ok "stage: /bin, /LICENSES, /SOURCE and /BUILDINFO exist" || bad "stage layout"
-grep -qx "commit=$(sha a)" "${tmp}/out/SOURCE" && grep -qx 'tag=v1.2.3' "${tmp}/out/SOURCE" && grep -q '^repository=https://github.com/a/b$' "${tmp}/out/SOURCE" && grep -q '^built=20' "${tmp}/out/SOURCE" && ok "stage: SOURCE has repository, tag, 40-hex commit and build date" || bad "SOURCE: $(cat "${tmp}/out/SOURCE")"
+grep -qx 'upstream=https://github.com/a/b' "${tmp}/out/SOURCE" && grep -qx "commit=$(sha a)" "${tmp}/out/SOURCE" && grep -qx 'tag=v1.2.3' "${tmp}/out/SOURCE" && grep -q '^repository=https://github.com/a/b$' "${tmp}/out/SOURCE" && grep -q '^built=20' "${tmp}/out/SOURCE" && ok "stage: SOURCE has repository, tag, 40-hex commit and build date" || bad "SOURCE: $(cat "${tmp}/out/SOURCE")"
 grep -q '^rustc:' "${tmp}/out/BUILDINFO" && grep -q '^cargo:' "${tmp}/out/BUILDINFO" && grep -q '^clang:' "${tmp}/out/BUILDINFO" && grep -q '^needs bin/tool:' "${tmp}/out/BUILDINFO" && ok "stage: BUILDINFO has rustc, cargo, clang and the needed libraries" || bad "BUILDINFO"
 stage --bin target/release/missing:bin/x --license lic/LICENSE:l && bad "stage: a missing build output must fail" || ok "stage: a missing build output fails"
 stage --bin target/release/tool:bin/tool --license lic/missing:l && bad "stage: a missing license must fail" || ok "stage: a missing license file fails"
@@ -168,16 +184,31 @@ printf '#!/usr/bin/env bash\necho "cargo $*" >> "${CALLS}"\n' > "${tmp}/bin/carg
 printf '#!/usr/bin/env bash\necho "stage $*" >> "${CALLS}"\n' > "${tmp}/stub/stage.sh"
 chmod +x "${tmp}/bin/cargo" "${tmp}/stub/stage.sh"
 export CALLS="${tmp}/calls"
-sbuild() { : > "${CALLS}"; printf '%s\n' "$@" > "${tmp}/sched.txt"; PATH="${tmp}/bin:${PATH}" STAGE_SH="${tmp}/stub/stage.sh" "${src}/scx-bin/build.sh" "${tmp}/sched.txt" "${tmp}/good.env" "${bsrc}" "${tmp}/o" > "${tmp}/sb.log" 2>&1; }
-sbuild "# comment" scx_a "scx_b  # trailing"
+sbuild() { : > "${CALLS}"; rm -rf "${tmp}/o"; mkdir -p "${tmp}/o"; printf '%b\n' "$@" > "${tmp}/sched.tsv"; PATH="${tmp}/bin:${PATH}" STAGE_SH="${tmp}/stub/stage.sh" "${src}/scx-bin/build.sh" "${tmp}/sched.tsv" "${tmp}/good.env" "${bsrc}" "${tmp}/o" > "${tmp}/sb.log" 2>&1; }
+sbuild "# comment" 'scx_a\t6.12\tAlpha scheduler' 'scx_b\t\tBeta scheduler'
 grep -qx 'cargo build --release --locked -p scx_a -p scx_b' "${CALLS}" && ok "scx build: one cargo call, --locked, a -p per scheduler in the list" || bad "scx build cargo: $(cat "${CALLS}" "${tmp}/sb.log")"
 grep -q -- '--bin target/release/scx_a:bin/scx_a --smoke bin/scx_a:--version' "${CALLS}" && grep -q -- '--license scheds/rust/scx_b/LICENSE:scx_b-LICENSE' "${CALLS}" && grep -q -- '--license LICENSE:scx-LICENSE' "${CALLS}" && ok "scx build: each scheduler is staged as /bin/<name> with its own LICENSE, smoke-tested with --version" || bad "scx build stage: $(cat "${CALLS}")"
-sbuild scx_a scx_b scx_c
-grep -qx 'cargo build --release --locked -p scx_a -p scx_b -p scx_c' "${CALLS}" && grep -q -- '--license scheds/experimental/scx_c/LICENSE:scx_c-LICENSE' "${CALLS}" && ok "scx build: adding a line to the list adds a scheduler (also under scheds/experimental), no code change" || bad "scx build third: $(cat "${CALLS}")"
-sbuild scx_missing && bad "scx build: an unknown scheduler must fail" || ok "scx build: a name that is not a scheduler directory fails before cargo runs"
-sbuild scx_a scx_a && bad "scx build: a duplicate must fail" || ok "scx build: a duplicate scheduler fails"
+[[ "$(cat "${tmp}/o/schedulers.tsv")" == "$(printf 'scx_a\tbin/scx_a\t6.12\tAlpha scheduler\nscx_b\tbin/scx_b\t\tBeta scheduler')" ]] && ok "scx build: /schedulers.tsv has name, binary path, minimum kernel (maybe empty) and description per line" || bad "scx manifest: $(cat -A "${tmp}/o/schedulers.tsv")"
+sbuild 'scx_a\t\tA' 'scx_b\t\tB' 'scx_c\t\tC'
+grep -qx 'cargo build --release --locked -p scx_a -p scx_b -p scx_c' "${CALLS}" && grep -q -- '--license scheds/experimental/scx_c/LICENSE:scx_c-LICENSE' "${CALLS}" && [[ "$(wc -l < "${tmp}/o/schedulers.tsv")" == 3 ]] && ok "scx build: adding a line adds a scheduler (also under scheds/experimental) and a manifest line, no code change" || bad "scx build third: $(cat "${CALLS}")"
+sbuild 'scx_missing\t\tNo such scheduler' && bad "scx build: an unknown scheduler must fail" || ok "scx build: a name that is not a scheduler directory fails before cargo runs"
+sbuild 'scx_a\t\tA' 'scx_a\t\tA again' && bad "scx build: a duplicate must fail" || ok "scx build: a duplicate scheduler fails"
 sbuild '# nothing' && bad "scx build: an empty list must fail" || ok "scx build: an empty list fails"
-sbuild 'bad name' && bad "scx build: a bad name must fail" || ok "scx build: a bad scheduler name fails"
+sbuild 'bad name\t\tX' && bad "scx build: a bad name must fail" || ok "scx build: a bad scheduler name fails"
+sbuild 'scx_a\t\t' && bad "scx build: an empty description must fail" || ok "scx build: an empty description fails"
+sbuild 'scx_a\tsix\tA' && bad "scx build: a bad kernel must fail" || ok "scx build: a minimum kernel that is not MAJOR.MINOR fails"
+sbuild 'scx_a\tA description without the kernel column' && bad "scx build: two fields must fail" || ok "scx build: a row without three tab separated fields fails"
+# the real list through the same script: all seven present, one manifest line each, no empty description
+rsrc="${tmp}/realsrc"
+mkdir -p "${rsrc}/scheds/rust" "${tmp}/o2"
+echo root > "${rsrc}/LICENSE"
+for n in $(grep -vE '^[[:space:]]*(#|$)' "${tsv}" | cut -f1); do mkdir -p "${rsrc}/scheds/rust/${n}"; echo "lic ${n}" > "${rsrc}/scheds/rust/${n}/LICENSE"; done
+: > "${CALLS}"
+PATH="${tmp}/bin:${PATH}" STAGE_SH="${tmp}/stub/stage.sh" "${src}/scx-bin/build.sh" "${tsv}" "${tmp}/good.env" "${rsrc}" "${tmp}/o2" > "${tmp}/sb2.log" 2>&1 && ok "scx build: the real schedulers.tsv runs through build.sh" || bad "real list: $(cat "${tmp}/sb2.log")"
+man="${tmp}/o2/schedulers.tsv"
+[[ "$(wc -l < "${man}")" == 7 && "$(cut -f1 "${man}" | tr '\n' ' ')" == "scx_rusty scx_lavd scx_cake scx_bpfland scx_cosmos scx_flash scx_p2dq " ]] && ok "manifest: all seven schedulers, one line each" || bad "manifest names: $(cat "${man}")"
+[[ -z "$(awk -F'\t' 'NF != 4 || $1 == "" || $2 != "bin/" $1 || $4 == "" {print $1}' "${man}")" ]] && ok "manifest: four fields per line, binary path /bin/<name>, no empty description" || bad "manifest fields"
+grep -qx 'cargo build --release --locked -p scx_rusty -p scx_lavd -p scx_cake -p scx_bpfland -p scx_cosmos -p scx_flash -p scx_p2dq' "${CALLS}" && ok "scx build: the seven schedulers are built with one cargo invocation" || bad "seven cargo: $(cat "${CALLS}")"
 
 # --- the weekly upstream check with a stub gh (replies from files named after the API path)
 mkdir -p "${tmp}/bin" "${tmp}/gh"
@@ -223,6 +254,22 @@ reply repos_o_p_tags ""
 [[ "$(chk)" == report* ]] && ok "check: no release and no tag: report only" || bad "check no tags: $(chk)"
 reply repos_o_p_releases_latest 1.0.3 repos_o_p_commits_1.0.3 "$(sha a)" "repos_o_p_compare_$(sha a)...$(sha a)" identical
 [[ "$(chk)" == current* ]] && ok "check: the pinned commit is the latest release: current" || bad "check identical: $(chk)"
+# a fork: UPSTREAM_REPO is our fork, UPSTREAM_WATCH the real project
+printf 'UPSTREAM_REPO=f/ork\nUPSTREAM_WATCH=o/p\nUPSTREAM_TAG=\nUPSTREAM_COMMIT=%s\n' "$(sha a)" > "${crepo}/img/upstream.env"
+reply repos_o_p_releases_latest 1.0.3 repos_o_p_commits_1.0.3 "$(sha d)" "repos_o_p_compare_$(sha a)...$(sha d)" behind
+[[ "$(chk)" == report* ]] && ok "check (fork): the latest release is behind the pin: report, nothing to open" || bad "check fork behind: $(chk)"
+reply repos_o_p_releases_latest 1.1.0 repos_o_p_commits_1.1.0 "$(sha e)" "repos_o_p_compare_$(sha a)...$(sha e)" ahead repos_f_ork main "repos_f_ork_compare_$(sha e)...main" ahead
+[[ "$(chk)" == "bump 1.1.0 $(sha e)" ]] && ok "check (fork): a new release that the fork already has: bump (pin = commit, tag = label)" || bad "check fork has it: $(chk)"
+reply repos_o_p_releases_latest 1.1.0 repos_o_p_commits_1.1.0 "$(sha e)" "repos_o_p_compare_$(sha a)...$(sha e)" ahead repos_f_ork main "repos_f_ork_compare_$(sha e)...main" diverged
+[[ "$(chk)" == forkbehind\ 1.1.0\ "$(sha e)"* ]] && ok "check (fork): a new release the fork does not have yet: forkbehind, no bump" || bad "check fork behind upstream: $(chk)"
+reply repos_o_p_releases_latest 1.1.0 repos_o_p_commits_1.1.0 "$(sha e)" "repos_o_p_compare_$(sha a)...$(sha e)" ahead repos_f_ork main
+[[ "$(chk)" == forkbehind* ]] && ok "check (fork): a fork compare that fails counts as the fork being behind" || bad "check fork compare fails: $(chk)"
+reply repos_o_p_releases_latest 1.1.0 repos_o_p_commits_1.1.0 "$(sha e)" "repos_o_p_compare_$(sha a)...$(sha e)" ahead
+[[ "$(chk)" == unreachable* ]] && ok "check (fork): the fork itself cannot be read: fail soft" || bad "check fork unreadable: $(chk)"
+printf 'UPSTREAM_REPO=f/ork\nUPSTREAM_WATCH=o/p\nUPSTREAM_TAG=1.1.0\nUPSTREAM_COMMIT=%s\n' "$(sha e)" > "${crepo}/img/upstream.env"
+reply repos_o_p_releases_latest 1.1.0
+[[ "$(chk)" == current* ]] && ok "check (fork): the tag label is the latest release: current" || bad "check fork label current: $(chk)"
+! grep -q 'repos/f/ork/tags\|repos/f/ork/releases' "${GH_LOG}" && ok "check (fork): releases are asked of the watched project, never of the fork" || bad "check asked the fork for releases"
 ! grep -qE 'gh (pr|repo|release) |--method|-X ' "${GH_LOG}" && ok "check: only reads (gh api GET)" || bad "check wrote something"
 
 # --- bump-pr.sh: new PR, already open, older PR updated; a local origin, a stub gh, no force-push
@@ -265,6 +312,14 @@ bump v1.1.6 "$(sha c)" && grep -q '^gh pr edit 7 --title Bump img-bin to v1.1.6'
 [[ "$(git -C "${origin}" log --format=%s testing..bump/img-bin | wc -l)" -ge 2 && "$(git -C "${origin}" show bump/img-bin:img/upstream.env | grep -c "$(sha c)")" == 1 ]] && ok "bump: the update is a new commit on the same branch (no force-push)" || bad "bump update commit"
 ! git -C "${origin}" log --format=%B bump/img-bin | grep -qi 'co-authored-by' && ok "bump: no commit trailers" || bad "bump trailer"
 
+# a fork: the PR links the followed project and says the pin is the fork's commit
+git -C "${wc}" checkout -q testing
+printf 'UPSTREAM_REPO=f/ork\nUPSTREAM_WATCH=o/p\nUPSTREAM_TAG=1.0.3\nUPSTREAM_COMMIT=%s\n' "$(sha a)" > "${wc}/img/upstream.env"
+git -C "${wc}" commit -q -a -m "fork pin" && git -C "${wc}" push -q origin testing
+: > "${tmp}/prlist"; : > "${GH_LOG}"
+bump 1.1.0 "$(sha b)"; body=$(cat "${GH_LOG}" "${tmp}/bump.log")
+[[ "${body}" == *"github.com/o/p/releases/tag/1.1.0"* && "${body}" == *"github.com/o/p/compare/1.0.3...1.1.0"* && "${body}" == *"build source is the fork"* && "${body}" == *"f/ork"* ]] && ok "bump (fork): links the followed project and says the pin is the fork's commit, the tag a label" || bad "bump fork body: ${body}"
+
 # --- the workflows
 python3 -I - "${src}" <<'PY'
 import sys, yaml, pathlib
@@ -279,6 +334,7 @@ text = (wf / "upstream-check.yml").read_text()
 r("packages: write" not in text and "podman" not in text and "cosign" not in text and "ghcr.io" not in text, "upstream-check.yml: publishes nothing")
 r(up["permissions"] == {"contents": "write", "pull-requests": "write"}, "upstream-check.yml: contents and pull-requests write only")
 r("secrets.BUMP_TOKEN || secrets.GITHUB_TOKEN" in text and "BUMP_TOKEN_SET" in text, "upstream-check.yml: BUMP_TOKEN when set, else the default token")
+r("gh repo sync" in text and "forkbehind" in text, "upstream-check.yml: a fork behind upstream is a notice and a summary line telling to sync it, not a failure")
 r("echo ${{ secrets" not in text and "echo \"${GH_TOKEN}\"" not in text, "upstream-check.yml: no token is printed")
 r(up["jobs"]["check"]["name"] == "Check upstream releases", "upstream-check.yml: its job name is not a required check name")
 b = (wf / "build-image.yml").read_text()

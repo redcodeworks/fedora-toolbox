@@ -1,8 +1,8 @@
 # extest-bin
 
-`libextest.so` from [extest](https://github.com/Supreeeme/extest) (MIT), built from one pinned upstream commit (see `/SOURCE`), as a tiny signed image. Steam loads it with `LD_PRELOAD` (as a Flatpak too). x86_64 hosts only.
+`libextest.so` from [extest](https://github.com/Supreeeme/extest) (MIT), built from one pinned commit of our fork [redcodeworks/extest](https://github.com/redcodeworks/extest) (a plain mirror of upstream with no patches, kept so the build input is ours to control; see `/SOURCE`), as a tiny signed image. Steam loads it with `LD_PRELOAD` (as a Flatpak too). x86_64 hosts only.
 
-The image holds `/lib64/libextest.so` (64-bit) and `/lib/libextest.so` (32-bit, because Steam is a 32-bit application), `/LICENSES/`, `/SOURCE` (repository, commit, build date) and `/BUILDINFO`. It has no shell.
+The image holds `/lib64/libextest.so` (64-bit) and `/lib/libextest.so` (32-bit, because Steam is a 32-bit application), `/LICENSES/`, `/SOURCE` (the fork it was built from, the upstream project, commit, build date) and `/BUILDINFO`. It has no shell.
 
 ## Use it in a Containerfile
 
