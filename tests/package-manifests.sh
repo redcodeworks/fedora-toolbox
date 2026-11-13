@@ -4,7 +4,7 @@
 # that use it, the installer handles the two dna tiers and the gaming entries, and the toolbox builds install exactly the
 # package set the old build scripts installed (reference: the old sed-based algorithm, kept inline below).
 # No network, no podman, stub dnf5. Needs: bash, git, python3. Run: tests/package-manifests.sh
-# shellcheck disable=SC2015
+# shellcheck disable=SC2015,SC2016
 set -uo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
