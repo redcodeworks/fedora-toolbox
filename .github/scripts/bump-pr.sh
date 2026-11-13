@@ -26,10 +26,13 @@ file="${dir}/upstream.env"
 
 cd "${root}"
 upstream_env_load "${file}"
-repo="${UPSTREAM_REPO}"
+repo="${UPSTREAM_WATCH}"   # release notes and compare links point at the project that was followed
+fork="${UPSTREAM_REPO}"
 old_tag="${UPSTREAM_TAG}"
 old_commit="${UPSTREAM_COMMIT}"
 title="Bump ${name} to ${new_tag}"
+fork_note=""
+if [[ "${repo}" != "${fork}" ]]; then fork_note=" The build source is the fork \`${fork}\`: the pin is its commit \`${new_commit:0:7}\`, \`${new_tag}\` is only a label."; fi
 
 open=$(gh pr list --head "${branch}" --base "${base}" --state open --json number,title --jq '.[0] // empty')
 if [[ -n "${open}" && "$(jq -r .title <<<"${open}")" == "${title}" ]]; then
@@ -40,7 +43,8 @@ fi
 git fetch -q origin
 if git rev-parse -q --verify "origin/${branch}" > /dev/null; then
     git checkout -q -B "${branch}" "origin/${branch}"
-    git merge -q --no-edit "origin/${base}" || { echo "::error::cannot merge ${base} into ${branch}"; exit 1; }
+    # testing may have moved on (even in upstream.env): take its content on conflicts, the bump is applied again below
+    git merge -q --no-edit -X theirs "origin/${base}" || { echo "::error::cannot merge ${base} into ${branch}"; exit 1; }
 else
     git checkout -q -B "${branch}" "origin/${base}"
 fi
@@ -56,7 +60,7 @@ body="Upstream ${repo} has a newer release than the pin of \`${name}\`.
 - Release notes: https://github.com/${repo}/releases/tag/${new_tag}
 - Changes: https://github.com/${repo}/compare/${from}...${new_tag}
 
-Only \`${file}\` changes. The merge into \`${base}\` builds and publishes the \`testing\` image of \`${name}\`; the build fails if the tag does not resolve to the pinned commit. Not verified: nothing is built or run by this PR; a BPF scheduler can only be loaded on a real machine."
+Only \`${file}\` changes.${fork_note} The merge into \`${base}\` builds and publishes the \`testing\` image of \`${name}\`; the build fails if the tag does not resolve to the pinned commit. Not verified: nothing is built or run by this PR; a BPF scheduler can only be loaded on a real machine."
 if [[ "${BUMP_TOKEN_SET:-false}" != "true" ]]; then
     body+="
 

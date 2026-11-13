@@ -10,7 +10,8 @@
 #            --elf-i386 <path in the image>                  (repeat; must be a 32-bit Intel 80386 ELF object)
 #            --info <text>                                   (repeat; a line added to BUILDINFO, e.g. the build targets)
 #
-# SOURCE: repository URL, tag, 40-hex commit, build date (the exact upstream source of the binaries). BUILDINFO: rustc,
+# SOURCE: repository URL (what was built from: the fork for extest), upstream URL (the project being followed), tag (a
+# label when the repository is a fork), 40-hex commit, build date (the exact source of the binaries). BUILDINFO: rustc,
 # cargo, clang, glibc, the extra --info lines and the shared libraries each staged file needs (readelf NEEDED) (so a consumer can check its image has them). A BPF scheduler cannot be loaded on
 # a CI runner, so the smoke test only proves that the binary starts and parses its arguments.
 set -euo pipefail
@@ -71,6 +72,7 @@ done
 built=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 {
     echo "repository=https://github.com/${UPSTREAM_REPO}"
+    echo "upstream=https://github.com/${UPSTREAM_WATCH}"
     echo "tag=${UPSTREAM_TAG}"
     echo "commit=${UPSTREAM_COMMIT}"
     echo "built=${built}"

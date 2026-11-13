@@ -1,8 +1,8 @@
 # scx-bin
 
-The `scx_rusty` and `scx_lavd` [sched_ext](https://github.com/sched-ext/scx) CPU schedulers, built from one pinned upstream release (see `/SOURCE`), as a tiny signed image. An OS image can copy them in by digest instead of compiling anything. Fedora's own `scx_rusty` is older and is not used.
+The [sched_ext](https://github.com/sched-ext/scx) CPU schedulers `scx_rusty`, `scx_lavd`, `scx_cake`, `scx_bpfland`, `scx_cosmos`, `scx_flash` and `scx_p2dq`, built from one pinned upstream release (see `/SOURCE`), as a tiny signed image. An OS image can copy them in by digest instead of compiling anything. Fedora's own `scx_rusty` is older and is not used.
 
-The image holds `/bin/scx_rusty`, `/bin/scx_lavd`, `/LICENSES/` (the upstream license texts), `/SOURCE` (repository, tag, 40-character commit, build date) and `/BUILDINFO` (rustc, cargo, clang, glibc and the shared libraries the binaries need). It has no shell.
+The image holds one binary per scheduler in `/bin/`, `/schedulers.tsv` (a machine-readable list: one line per scheduler with four tab-separated fields, name, binary path, minimum kernel (empty when upstream states none) and a one-line description), `/LICENSES/` (the upstream license texts), `/SOURCE` (repository, tag, 40-character commit, build date) and `/BUILDINFO` (rustc, cargo, clang, glibc and the shared libraries the binaries need). It has no shell.
 
 ## Use it in a Containerfile
 
@@ -14,6 +14,7 @@ FROM ghcr.io/redcodeworks/scx-bin@sha256:<digest> AS scx
 FROM <your Fedora 45 based image>
 COPY --from=scx /bin/scx_rusty /usr/bin/scx_rusty
 COPY --from=scx /bin/scx_lavd /usr/bin/scx_lavd
+# one line per scheduler; /schedulers.tsv lists them
 # or, without a stage:
 # COPY --from=ghcr.io/redcodeworks/scx-bin@sha256:<digest> /bin/scx_lavd /usr/bin/scx_lavd
 ```

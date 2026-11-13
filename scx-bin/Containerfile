@@ -1,4 +1,4 @@
-# Published as ghcr.io/redcodeworks/scx-bin: scx_rusty and scx_lavd (sched_ext CPU schedulers) built from the release
+# Published as ghcr.io/redcodeworks/scx-bin: the sched_ext CPU schedulers listed in schedulers.tsv (scx_rusty, scx_lavd, scx_cake, scx_bpfland, scx_cosmos, scx_flash, scx_p2dq) built from the release
 # pinned in upstream.env, nothing else. The builder is a Fedora 45 container (the release of the octarine-os image that
 # copies the binaries in) pinned by digest, with the toolchain from Fedora's own repositories. The build fails unless the
 # checked-out tag is the pinned commit, and cargo runs with --locked. Build context: the repository root.
@@ -10,14 +10,14 @@ RUN dnf5 -y install --setopt=install_weak_deps=False --setopt=strict=1 \
     && dnf5 clean all
 
 COPY binary-build /binary-build
-COPY scx-bin/upstream.env scx-bin/schedulers.txt scx-bin/build.sh /scx-bin/
+COPY scx-bin/upstream.env scx-bin/schedulers.tsv scx-bin/build.sh /scx-bin/
 
 RUN /binary-build/fetch-source.sh /scx-bin/upstream.env /src
 
-# Every scheduler in schedulers.txt (scx_rusty and scx_lavd today) from the one tag in a single invocation, which is
+# Every scheduler in schedulers.tsv (seven today) from the one tag in a single invocation, which is
 # cargo build --release --locked -p <each>; the BPF side is compiled by scx's build scripts with clang. build.sh then stages
-# the binaries, licenses, SOURCE and BUILDINFO and runs each binary's --version.
-RUN STAGE_SH=/binary-build/stage.sh /scx-bin/build.sh /scx-bin/schedulers.txt /scx-bin/upstream.env /src /out
+# the binaries, licenses, SOURCE, BUILDINFO and /schedulers.tsv and runs each binary's --version.
+RUN STAGE_SH=/binary-build/stage.sh /scx-bin/build.sh /scx-bin/schedulers.tsv /scx-bin/upstream.env /src /out
 
 FROM scratch
 
@@ -32,7 +32,7 @@ LABEL maintainer="redcodeworks/fedora-toolbox" \
       org.opencontainers.image.authors="redcodeworks" \
       org.opencontainers.image.vendor="redcodeworks" \
       org.opencontainers.image.title="scx-bin" \
-      org.opencontainers.image.description="scx_rusty and scx_lavd sched_ext schedulers built from a pinned upstream release" \
+      org.opencontainers.image.description="sched_ext schedulers (scx_rusty, scx_lavd, scx_cake, scx_bpfland, scx_cosmos, scx_flash, scx_p2dq) built from a pinned upstream release" \
       org.opencontainers.image.url="https://github.com/redcodeworks/fedora-toolbox" \
       org.opencontainers.image.documentation="https://github.com/redcodeworks/fedora-toolbox/blob/main/scx-bin/README.md" \
       org.opencontainers.image.source="https://github.com/redcodeworks/fedora-toolbox" \

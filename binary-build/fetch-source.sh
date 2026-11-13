@@ -4,7 +4,8 @@
 #   fetch-source.sh <upstream.env> <dest-dir>
 #
 # Tag pin: fetch refs/tags/<tag> and require its commit (peeled, for annotated tags) to equal UPSTREAM_COMMIT, so a
-# tag that was moved upstream cannot slip in. Commit pin (UPSTREAM_TAG empty): fetch that commit and require it.
+# tag that was moved upstream cannot slip in. Commit pin (UPSTREAM_TAG empty, or UPSTREAM_WATCH differs from
+# UPSTREAM_REPO, i.e. a fork whose tags may be missing and where the tag is only a label): fetch that commit and require it.
 # UPSTREAM_BASE_URL (default https://github.com) exists for the tests, which use local repositories.
 set -euo pipefail
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -18,7 +19,7 @@ upstream_env_load "${envfile}"
 url="${UPSTREAM_BASE_URL:-https://github.com}/${UPSTREAM_REPO}.git"
 git init -q "${dest}"
 git -C "${dest}" remote add origin "${url}"
-if [[ -n "${UPSTREAM_TAG}" ]]; then
+if [[ -n "${UPSTREAM_TAG}" && "${UPSTREAM_WATCH}" == "${UPSTREAM_REPO}" ]]; then
     git -C "${dest}" fetch -q --depth 1 origin "refs/tags/${UPSTREAM_TAG}:refs/tags/${UPSTREAM_TAG}"
     got=$(git -C "${dest}" rev-parse "refs/tags/${UPSTREAM_TAG}^{commit}")
     what="tag ${UPSTREAM_TAG}"
