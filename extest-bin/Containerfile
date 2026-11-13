@@ -1,0 +1,45 @@
+# Published as ghcr.io/redcodeworks/extest-bin: libextest.so built from the upstream commit pinned in upstream.env,
+# nothing else. x86_64 only (Steam runs as a Flatpak and loads it through LD_PRELOAD). The build is the one the
+# octarine-os user recipe does: cargo build --release --locked --target x86_64-unknown-linux-gnu. The builder is a
+# Fedora 45 container pinned by digest with the toolchain from Fedora's repositories. Build context: the repository root.
+FROM registry.fedoraproject.org/fedora:45@sha256:e15959f36d52307f176f8c068009f6f1451c3b238b37a1f03e56dbfa4526e8b1 AS build
+
+RUN dnf5 -y install --setopt=install_weak_deps=False --setopt=strict=1 \
+        git-core rust cargo gcc binutils \
+    && dnf5 clean all
+
+COPY binary-build /binary-build
+COPY extest-bin/upstream.env /upstream.env
+
+RUN /binary-build/fetch-source.sh /upstream.env /src
+
+WORKDIR /src
+# Upstream's .cargo/config.toml defaults to i686 (Steam is a 32-bit application); the explicit target overrides it.
+RUN cargo build --release --locked --target x86_64-unknown-linux-gnu
+
+RUN /binary-build/stage.sh --out /out --env /upstream.env --src /src \
+        --bin target/x86_64-unknown-linux-gnu/release/libextest.so:lib64/libextest.so \
+        --license LICENSE:extest-LICENSE \
+        --elf-x86-64 lib64/libextest.so
+
+FROM scratch
+
+# Build values passed by CI (podman build --build-arg ...); no secrets
+ARG IMAGE_VERSION=dev
+ARG IMAGE_REVISION=unknown
+ARG IMAGE_CREATED=unknown
+
+COPY --from=build /out/ /
+
+LABEL maintainer="redcodeworks/fedora-toolbox" \
+      org.opencontainers.image.authors="redcodeworks" \
+      org.opencontainers.image.vendor="redcodeworks" \
+      org.opencontainers.image.title="extest-bin" \
+      org.opencontainers.image.description="libextest.so (extest) built from a pinned upstream commit, x86_64" \
+      org.opencontainers.image.url="https://github.com/redcodeworks/fedora-toolbox" \
+      org.opencontainers.image.documentation="https://github.com/redcodeworks/fedora-toolbox/blob/main/extest-bin/README.md" \
+      org.opencontainers.image.source="https://github.com/redcodeworks/fedora-toolbox" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.version="${IMAGE_VERSION}" \
+      org.opencontainers.image.revision="${IMAGE_REVISION}" \
+      org.opencontainers.image.created="${IMAGE_CREATED}"

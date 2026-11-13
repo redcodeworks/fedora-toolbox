@@ -74,6 +74,7 @@ jobs:
           SOURCE: ${{ inputs.source }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ACTOR: ${{ github.actor }}
+          DIR: ${{ inputs.image_dir }}
         run: |
           set -euo pipefail
           image="${IMAGE_REGISTRY,,}/${NAME,,}"
@@ -89,7 +90,10 @@ jobs:
           cosign verify --key cosign.pub "${image}@${before}" > /dev/null || fallback "no valid signature for ${before}"
 
           dated="latest-$(date -u +%Y%m%d)-${GITHUB_SHA::7}"
-          for tag in latest "${dated}"; do
+          # a binary image also carries its upstream version (v1.1.4, or commit-<sha7> for a commit pin)
+          extra=""
+          if [[ "$(.github/scripts/images.sh kind "${DIR}")" == binary ]]; then extra=$(.github/scripts/images.sh version-tag "${DIR}"); fi
+          for tag in latest "${dated}" ${extra}; do
             skopeo copy --all --preserve-digests "docker://${src}" "docker://${image}:${tag}"
             skopeo inspect --raw "docker://${image}:${tag}" > "${RUNNER_TEMP}/after.json"
             after=$(skopeo manifest-digest "${RUNNER_TEMP}/after.json")
@@ -103,7 +107,7 @@ jobs:
             echo "promoted=true"
             echo "image=${image}"
             echo "digests=${before}"
-            echo "alias_tags=latest ${dated}"
+            echo "alias_tags=latest ${dated}${extra:+ ${extra}}"
           } >> "${GITHUB_OUTPUT}"
 
   build_push:
@@ -141,6 +145,7 @@ jobs:
         env:
           REF: ${{ github.ref }}
           NAME: ${{ inputs.image_name }}
+          DIR: ${{ inputs.image_dir }}
         run: |
           publish=false
           tag=testing
@@ -151,6 +156,8 @@ jobs:
           dated="${tag}-$(date -u +%Y%m%d)-${GITHUB_SHA::7}"
           # testing also gets a plain testing-<short sha> tag: the promote decision looks it up
           if [[ "${tag}" == "testing" ]]; then alias="${tag} testing-${GITHUB_SHA::7} ${dated}"; else alias="${tag} ${dated}"; fi
+          # a binary image published from main also carries its upstream version (v1.1.4, or commit-<sha7> for a commit pin)
+          if [[ "${tag}" == "latest" && "$(.github/scripts/images.sh kind "${DIR}")" == binary ]]; then alias="${alias} $(.github/scripts/images.sh version-tag "${DIR}")"; fi
           {
             echo "publish=${publish}"
             echo "tag=${tag}"
@@ -205,10 +212,15 @@ jobs:
           NAME: ${{ inputs.image_name }}
         run: just smoke "${NAME}" "${TAG}"
 
+      - name: Image kind
+        env:
+          DIR: ${{ inputs.image_dir }}
+        run: echo "KIND=$(.github/scripts/images.sh kind "${DIR}")" >> "${GITHUB_ENV}"
+
       # A data image (IMAGE_KIND=list, FROM scratch) has no shell to run a smoke test in: check
       # instead that the image carries the files image.env names (DATA_FILES: <repo path>:<image path>)
       - name: Check data image contents
-        if: ${{ hashFiles(format('{0}/tests/smoke.sh', inputs.image_dir)) == '' }}
+        if: ${{ hashFiles(format('{0}/tests/smoke.sh', inputs.image_dir)) == '' && env.KIND == 'list' }}
         env:
           DIR: ${{ inputs.image_dir }}
         run: |
@@ -225,6 +237,31 @@ jobs:
           done < <(.github/scripts/images.sh data-files "${DIR}")
           [[ "${n}" -gt 0 ]] || { echo "::error::${DIR}/image.env has no DATA_FILES to check"; exit 1; }
           podman rm "${cid}" > /dev/null
+
+      # A binary image (IMAGE_KIND=binary): the files image.env names exist and are not empty, /SOURCE carries the pinned
+      # commit, /BUILDINFO and /LICENSES are there. (The build already ran each binary's --version; a BPF scheduler
+      # cannot be loaded on a CI runner.)
+      - name: Check binary image contents
+        if: ${{ env.KIND == 'binary' }}
+        env:
+          DIR: ${{ inputs.image_dir }}
+        run: |
+          set -euo pipefail
+          cid=$(podman create "localhost/${LOCAL_NAME}:${TAG}" /SOURCE)
+          chk="${RUNNER_TEMP}/binary-check"
+          mkdir -p "${chk}"
+          for f in SOURCE BUILDINFO $(.github/scripts/images.sh binary-files "${DIR}"); do
+            podman cp "${cid}:/${f}" "${chk}/$(basename "${f}")"
+            [[ -s "${chk}/$(basename "${f}")" ]] || { echo "::error::/${f} is missing or empty"; exit 1; }
+            echo "ok: /${f}"
+          done
+          podman cp "${cid}:/LICENSES" "${chk}/LICENSES"
+          [[ -n "$(ls -A "${chk}/LICENSES")" ]] || { echo "::error::/LICENSES is empty"; exit 1; }
+          . binary-build/upstream-env.sh
+          upstream_env_load "${DIR}/upstream.env"
+          grep -qx "commit=${UPSTREAM_COMMIT}" "${chk}/SOURCE" || { echo "::error::/SOURCE does not carry the pinned commit ${UPSTREAM_COMMIT}"; exit 1; }
+          podman rm "${cid}" > /dev/null
+          cat "${chk}/SOURCE"
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
