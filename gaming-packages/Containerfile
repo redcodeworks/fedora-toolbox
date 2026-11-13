@@ -1,0 +1,25 @@
+# Published as ghcr.io/redcodeworks/gaming-packages: the package manifest of fedora-gaming and the shared
+# installer, nothing else. No base image, no shell, no packages. fedora-gaming builds from the same in-repo files.
+# Build context: the repository root.
+FROM scratch
+
+# Build values passed by CI (podman build --build-arg ...); no secrets
+ARG IMAGE_VERSION=dev
+ARG IMAGE_REVISION=unknown
+ARG IMAGE_CREATED=unknown
+
+COPY gaming-packages/gaming.txt package-installer/install.sh /
+COPY gaming-packages/README.md /README
+
+LABEL maintainer="redcodeworks/fedora-toolbox" \
+      org.opencontainers.image.authors="redcodeworks" \
+      org.opencontainers.image.vendor="redcodeworks" \
+      org.opencontainers.image.title="gaming-packages" \
+      org.opencontainers.image.description="Package manifest of fedora-gaming and its installer" \
+      org.opencontainers.image.url="https://github.com/redcodeworks/fedora-toolbox" \
+      org.opencontainers.image.documentation="https://github.com/redcodeworks/fedora-toolbox/blob/main/gaming-packages/README.md" \
+      org.opencontainers.image.source="https://github.com/redcodeworks/fedora-toolbox" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.version="${IMAGE_VERSION}" \
+      org.opencontainers.image.revision="${IMAGE_REVISION}" \
+      org.opencontainers.image.created="${IMAGE_CREATED}"

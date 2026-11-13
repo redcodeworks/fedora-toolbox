@@ -78,13 +78,13 @@ verify = [s for s in sign if s.get("name", "").startswith("Verify")][0]["run"]
 r("cosign verify --key cosign.pub \"${IMAGE}:${tag}\"" in verify and "for tag in ${ALIAS_TAGS}" in verify, "every tag is verified with cosign.pub")
 # the build context comes from images.sh and a data image gets a contents check instead of a smoke test
 r('images.sh context "${DIR}"' in text, "the build context comes from image.env (BUILD_CONTEXT)")
-r("Check data image contents" in text and "hashFiles" in text, "a data image has a contents check instead of a smoke test")
+r("Check data image contents" in text and "hashFiles" in text and "images.sh data-files" in text, "a data image has a contents check instead of a smoke test")
 
 # image.env of dev-packages
 env = dict(l.split("=", 1) for l in (root/"dev-packages/image.env").read_text().splitlines() if "=" in l and not l.startswith("#"))
 r(env.get("IMAGE_NAME") == "dev-packages" and env.get("IMAGE_KIND") == "list", "dev-packages: image name and kind")
+r(env.get("BUILD_CONTEXT") == "." and env.get("EXTRA_PATHS") == "package-installer", "dev-packages: repository root as context, the shared installer rebuilds it")
 r(env.get("IMAGE_SCHEDULE") == "false", "dev-packages: not rebuilt by the weekly schedule")
-r("BUILD_CONTEXT" not in env, "dev-packages builds from its own directory")
 
 # Containerfile labels
 cf = (root/"dev-packages/Containerfile").read_text()
@@ -93,7 +93,7 @@ for label in ["title", "description", "source", "revision", "version", "created"
     r(f"org.opencontainers.image.{label}=" in cf, f"label org.opencontainers.image.{label}")
 r('licenses="Apache-2.0"' in cf, "licenses label is explicit Apache-2.0")
 r("Developer package list and installer shared by dev-toolbox and octarine-os-dx" in cf, "description label as agreed")
-r("COPY dev.txt install.sh /" in cf and "COPY README.md /README" in cf, "the image carries /dev.txt, /install.sh and /README")
+r("COPY dev-packages/dev.txt package-installer/install.sh /" in cf and "COPY dev-packages/README.md /README" in cf, "the image carries /dev.txt, /install.sh and /README")
 
 print("\n".join(res))
 PY
@@ -108,10 +108,10 @@ bs="${src}/fedora-toolbox/build_files/build.sh"
 cf="${src}/fedora-toolbox/Containerfile"
 check "dev-toolbox build.sh calls the shared installer on the shared list" grep -q '/ctx/dev-packages/install.sh /ctx/dev-packages/dev.txt' "${bs}"
 check "dev-toolbox build.sh has no install loop of its own" bash -c "! grep -q 'mapfile' '${bs}' && ! grep -q 'dnf5 -y' '${bs}'"
-check "dev-toolbox Containerfile copies dev-packages into its context stage" grep -q '^COPY dev-packages/dev.txt dev-packages/install.sh /dev-packages/' "${cf}"
+check "dev-toolbox Containerfile copies dev-packages into its context stage" grep -q '^COPY dev-packages/dev.txt package-installer/install.sh /dev-packages/' "${cf}"
 check "dev-toolbox does not pull the published list image" bash -c "! grep -q 'ghcr.io/redcodeworks/dev-packages' '${cf}'"
 check "dev-toolbox builds with the repository root as context" grep -qx 'BUILD_CONTEXT=.' "${src}/fedora-toolbox/image.env"
-check "a change in dev-packages rebuilds dev-toolbox" grep -qx 'EXTRA_PATHS=dev-packages' "${src}/fedora-toolbox/image.env"
+check "a change in dev-packages or the installer rebuilds dev-toolbox" grep -qx 'EXTRA_PATHS=dev-packages package-installer' "${src}/fedora-toolbox/image.env"
 check "the old packages path is gone from dev-toolbox, the Justfile and the README" bash -c "! grep -rn 'fedora-toolbox/packages/dev.txt\|/ctx/packages' '${src}/fedora-toolbox' '${src}/Justfile' '${src}/README.md'"
 check "dev-packages/README.md has the consumer contract" bash -c "grep -q 'AS devpkgs' '${src}/dev-packages/README.md' && grep -q 'cosign verify --key' '${src}/dev-packages/README.md' && grep -q 'EXCLUDE' '${src}/dev-packages/README.md' && grep -q 'dnf5' '${src}/dev-packages/README.md'"
 check "dev-packages/README.md carries the current cosign.pub text" bash -c "sed -n '2,3p' '${src}/cosign.pub' | while read -r l; do grep -qF \"\$l\" '${src}/dev-packages/README.md' || exit 1; done"
