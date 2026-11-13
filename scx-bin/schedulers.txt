@@ -1,0 +1,9 @@
+# The schedulers this image builds and carries, one per line (cargo package names, built from the pinned tag in upstream.env).
+# Adding one is a one-line change here: build.sh builds it with the others, installs it as /bin/<name>, copies its LICENSE
+# and runs <name> --version. Rust schedulers live under scheds/rust (production) and scheds/experimental in the scx
+# repository: scx_beerland scx_bpfland scx_cake scx_chaos scx_cosmos scx_eevdf scx_flash scx_forge scx_lavd scx_layered
+# scx_mitosis scx_p2dq scx_pandemonium scx_rusty (scheds/rust); scx_flow scx_mavd scx_mlfq scx_nitosis scx_rburst scx_reevdf
+# scx_rlfifo scx_rlocal scx_rustland scx_rvtime scx_tickless (scheds/experimental). There is no scheds/c any more: the C
+# example schedulers now live only in the Linux kernel tree (tools/sched_ext) and are not built here.
+scx_rusty
+scx_lavd

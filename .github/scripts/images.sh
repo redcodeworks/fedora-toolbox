@@ -8,7 +8,7 @@
 #   images.sh context <dir>   the build context of an image directory (default: the directory)
 #   images.sh kind <dir>      toolbox (default), list or binary
 #   images.sh dirs <kind>     the directories of that kind, one per line
-#   images.sh binary-files <dir>  the paths a binary image must carry (image.env BINARY_FILES)
+#   images.sh binary-files <dir>  the paths a binary image must carry (image.env BINARY_FILES, or bin/<name> for each line of schedulers.txt)
 #   images.sh version-tag <dir>   the release tag of a binary image: UPSTREAM_TAG, or commit-<sha7> for a commit pin
 #   images.sh data-files <dir>  the <repo path>:<image path> pairs a list image must carry (image.env DATA_FILES)
 #
@@ -59,7 +59,15 @@ image_scheduled() { [[ "$(_env_var "$1" IMAGE_SCHEDULE)" != "false" ]]; }
 image_data_files() { _env_var "$1" DATA_FILES | tr ' ' '\n' | sed '/^$/d'; }
 
 # BINARY_FILES (binary images): paths the image must carry, space separated
-image_binary_files() { _env_var "$1" BINARY_FILES | tr ' ' '\n' | sed '/^$/d'; }
+# a directory with schedulers.txt (scx-bin) derives them: bin/<name> per scheduler, so adding one needs no second edit
+image_binary_files() {
+    local f="${root}/$1/schedulers.txt"
+    if [[ -f "${f}" ]]; then
+        sed -e 's/[[:space:]]*#.*$//' -e '/^[[:space:]]*$/d' "${f}" | sed 's#^#bin/#'
+    else
+        _env_var "$1" BINARY_FILES | tr ' ' '\n' | sed '/^$/d'
+    fi
+}
 
 image_dirs_of_kind() { local d; for d in $(image_dirs); do [[ "$(image_kind "${d}")" == "$1" ]] && echo "${d}"; done; return 0; }
 

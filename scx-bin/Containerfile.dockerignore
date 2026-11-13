@@ -1,3 +1,5 @@
 *
 !binary-build
 !scx-bin/upstream.env
+!scx-bin/schedulers.txt
+!scx-bin/build.sh

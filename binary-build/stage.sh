@@ -6,10 +6,12 @@
 #            --bin <path in SRCDIR>:<path in the image>     (repeat; installed mode 0755)
 #            --license <path in SRCDIR>:<name in /LICENSES>  (repeat)
 #            --smoke <path in the image>:<arguments>         (repeat; run, must exit 0)
-#            --elf-x86-64 <path in the image>                (repeat; must be an x86-64 ELF object, for libraries)
+#            --elf-x86-64 <path in the image>                (repeat; must be a 64-bit x86-64 ELF object)
+#            --elf-i386 <path in the image>                  (repeat; must be a 32-bit Intel 80386 ELF object)
+#            --info <text>                                   (repeat; a line added to BUILDINFO, e.g. the build targets)
 #
-# SOURCE: repository URL, tag, 40-hex commit, build date. BUILDINFO: rustc, cargo, clang, glibc and the shared
-# libraries each staged file needs (so a consumer can check its image has them). A BPF scheduler cannot be loaded on
+# SOURCE: repository URL, tag, 40-hex commit, build date (the exact upstream source of the binaries). BUILDINFO: rustc,
+# cargo, clang, glibc, the extra --info lines and the shared libraries each staged file needs (readelf NEEDED) (so a consumer can check its image has them). A BPF scheduler cannot be loaded on
 # a CI runner, so the smoke test only proves that the binary starts and parses its arguments.
 set -euo pipefail
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -17,7 +19,7 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 source "${here}/upstream-env.sh"
 
 out="" envfile="" src=""
-bins=() licenses=() smokes=() elfs=()
+bins=() licenses=() smokes=() elfs=() elfs32=() infos=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --out) out=$2; shift 2 ;;
@@ -27,6 +29,8 @@ while [[ $# -gt 0 ]]; do
         --license) licenses+=("$2"); shift 2 ;;
         --smoke) smokes+=("$2"); shift 2 ;;
         --elf-x86-64) elfs+=("$2"); shift 2 ;;
+        --elf-i386) elfs32+=("$2"); shift 2 ;;
+        --info) infos+=("$2"); shift 2 ;;
         *) echo "stage.sh: unknown argument $1" >&2; exit 2 ;;
     esac
 done
@@ -54,8 +58,14 @@ for pair in "${smokes[@]}"; do
     "${out}/${to}" ${args} > /dev/null
 done
 for to in "${elfs[@]}"; do
-    readelf -h "${out}/${to}" | grep -Eq 'Machine:[[:space:]]+Advanced Micro Devices X86-64' || { echo "stage.sh: ${to} is not an x86-64 ELF object" >&2; exit 1; }
-    echo "elf: ${to} is x86-64"
+    hdr=$(readelf -h "${out}/${to}")
+    { grep -Eq 'Class:[[:space:]]+ELF64' <<<"${hdr}" && grep -Eq 'Machine:[[:space:]]+Advanced Micro Devices X86-64' <<<"${hdr}"; } || { echo "stage.sh: ${to} is not a 64-bit x86-64 ELF object" >&2; exit 1; }
+    echo "elf: ${to} is ELF64 x86-64"
+done
+for to in "${elfs32[@]}"; do
+    hdr=$(readelf -h "${out}/${to}")
+    { grep -Eq 'Class:[[:space:]]+ELF32' <<<"${hdr}" && grep -Eq 'Machine:[[:space:]]+Intel 80386' <<<"${hdr}"; } || { echo "stage.sh: ${to} is not a 32-bit Intel 80386 ELF object" >&2; exit 1; }
+    echo "elf: ${to} is ELF32 Intel 80386"
 done
 
 built=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -73,11 +83,15 @@ tool() { if command -v "$1" > /dev/null; then "$@" 2>&1 | head -n1; else echo "n
     echo "clang: $(tool clang --version)"
     echo "glibc: $(tool ldd --version)"
     if command -v rpm > /dev/null; then echo "glibc package: $(rpm -q glibc 2>&1 | head -n1)"; fi
+    for info in "${infos[@]}"; do echo "${info}"; done
     for to in "${staged[@]}"; do
         echo "needs ${to}:"
-        needed=$(ldd "${out}/${to}" 2>&1 || true)
-        if grep -q 'not found' <<<"${needed}"; then echo "stage.sh: ${to} has unresolved libraries: ${needed}" >&2; exit 1; fi
-        awk '/=>/ {print "  " $1} /^[[:space:]]*\// {print "  " $1}' <<<"${needed}" | sort -u
+        # the shared libraries the file asks for (static ELF data, so it works for the 32-bit library too)
+        readelf -d "${out}/${to}" | sed -n 's/.*(NEEDED)[[:space:]]*Shared library: \[\(.*\)\]/  \1/p' | sort -u
+        # a 64-bit file must also resolve in the builder (a 32-bit one cannot be run through the 64-bit loader)
+        if readelf -h "${out}/${to}" | grep -Eq 'Class:[[:space:]]+ELF64'; then
+            if ldd "${out}/${to}" 2>&1 | grep -q 'not found'; then echo "stage.sh: ${to} has unresolved libraries" >&2; exit 1; fi
+        fi
     done
 } > "${out}/BUILDINFO"
 echo "staged: ${staged[*]}"

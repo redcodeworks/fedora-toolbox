@@ -1,8 +1,8 @@
 # extest-bin
 
-`libextest.so` from [extest](https://github.com/Supreeeme/extest) (MIT), built from one pinned upstream commit (see `/SOURCE`), as a tiny signed image. Steam loads it with `LD_PRELOAD` (as a Flatpak too). x86_64 only.
+`libextest.so` from [extest](https://github.com/Supreeeme/extest) (MIT), built from one pinned upstream commit (see `/SOURCE`), as a tiny signed image. Steam loads it with `LD_PRELOAD` (as a Flatpak too). x86_64 hosts only.
 
-The image holds `/lib64/libextest.so`, `/LICENSES/`, `/SOURCE` (repository, commit, build date) and `/BUILDINFO`. It has no shell.
+The image holds `/lib64/libextest.so` (64-bit) and `/lib/libextest.so` (32-bit, because Steam is a 32-bit application), `/LICENSES/`, `/SOURCE` (repository, commit, build date) and `/BUILDINFO`. It has no shell.
 
 ## Use it in a Containerfile
 
@@ -13,13 +13,13 @@ FROM ghcr.io/redcodeworks/extest-bin@sha256:<digest> AS extest
 
 FROM <your Fedora 45 based image>
 COPY --from=extest /lib64/libextest.so /usr/lib64/libextest.so
-# or, without a stage:
-# COPY --from=ghcr.io/redcodeworks/extest-bin@sha256:<digest> /lib64/libextest.so /usr/lib64/libextest.so
+COPY --from=extest /lib/libextest.so /usr/lib/libextest.so
+# then LD_PRELOAD=/usr/$LIB/libextest.so loads the 64-bit or the 32-bit one per process
 ```
 
 Tags: `latest` (the current release), `latest-<YYYYMMDD>-<short sha>` (dated, never moves), `commit-<short sha>, for example `commit-cb77cd4`` (the upstream version it was built from); `testing` and `testing-<YYYYMMDD>-<short sha>` are the preview. Pin the digest, not a tag.
 
-The library is built with `cargo build --release --locked --target x86_64-unknown-linux-gnu` on Fedora 45 against its glibc. The build checks that it is an x86-64 ELF object; whether Steam picks it up is only verifiable on a real machine.
+Both libraries are built with `cargo build --release --locked --target <x86_64 or i686>-unknown-linux-gnu` on Fedora 45 against its glibc. The build checks the ELF class of each (64-bit x86-64, 32-bit Intel 80386); whether Steam picks it up is only verifiable on a real machine.
 
 ## Verify the signature
 
