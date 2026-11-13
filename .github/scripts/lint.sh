@@ -13,7 +13,7 @@ fail=0
 err() { echo "lint: $*" >&2; fail=1; }
 
 shopt -s nullglob
-scripts=(.github/scripts/*.sh tests/*.sh ./*/build_files/*.sh ./*/tests/*.sh ./package-installer/install.sh binary-build/*.sh ./*/stack/bin/* ./*/bin/*)
+scripts=(.github/scripts/*.sh tests/*.sh ./*/build_files/*.sh ./*/tests/*.sh ./package-installer/install.sh binary-build/*.sh ./*-bin/build.sh ./*/stack/bin/* ./*/bin/*)
 bash -n "${scripts[@]}" || fail=1
 if command -v shellcheck >/dev/null; then
     shellcheck -x -P SCRIPTDIR "${scripts[@]}" || fail=1
@@ -44,9 +44,9 @@ for d in $(image_dirs); do
         [[ "$(grep -cE '^FROM ' "${d}/Containerfile")" -ge 2 && "$(grep -E '^FROM ' "${d}/Containerfile" | tail -n1)" == "FROM scratch" ]] || err "${d}/Containerfile: a binary image ends in a FROM scratch stage"
         grep -E '^FROM ' "${d}/Containerfile" | head -n1 | grep -qE '@sha256:[0-9a-f]{64}' || err "${d}/Containerfile: the builder FROM must be pinned by digest"
         grep -q 'fetch-source.sh' "${d}/Containerfile" || err "${d}/Containerfile: the build must check out the pin through binary-build/fetch-source.sh"
-        grep -Eq 'cargo build .*--locked' "${d}/Containerfile" || err "${d}/Containerfile: cargo must run with --locked"
+        grep -Eq 'cargo build .*--locked' "${d}/Containerfile" "${d}"/build.sh 2> /dev/null || err "${d}: cargo must run with --locked"
         [[ -f "${d}/README.md" ]] || err "${d}/README.md missing"
-        [[ -n "$(image_binary_files "${d}")" ]] || err "${d}/image.env: BINARY_FILES missing"
+        [[ -n "$(image_binary_files "${d}")" ]] || err "${d}/image.env: BINARY_FILES (or a schedulers.txt) missing"
         [[ "$(image_extra_paths "${d}")" == *binary-build* ]] || err "${d}/image.env: EXTRA_PATHS must include binary-build"
         ! image_scheduled "${d}" || err "${d}/image.env: a binary image is not on the weekly schedule (IMAGE_SCHEDULE=false)"
         # shellcheck source=../../binary-build/upstream-env.sh

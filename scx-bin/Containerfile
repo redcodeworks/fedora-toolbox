@@ -10,20 +10,14 @@ RUN dnf5 -y install --setopt=install_weak_deps=False --setopt=strict=1 \
     && dnf5 clean all
 
 COPY binary-build /binary-build
-COPY scx-bin/upstream.env /upstream.env
+COPY scx-bin/upstream.env scx-bin/schedulers.txt scx-bin/build.sh /scx-bin/
 
-RUN /binary-build/fetch-source.sh /upstream.env /src
+RUN /binary-build/fetch-source.sh /scx-bin/upstream.env /src
 
-WORKDIR /src
-# Both schedulers from the one tag, one invocation. The BPF side is compiled by scx's build scripts with clang.
-RUN cargo build --release --locked -p scx_rusty -p scx_lavd
-
-RUN /binary-build/stage.sh --out /out --env /upstream.env --src /src \
-        --bin target/release/scx_rusty:bin/scx_rusty --bin target/release/scx_lavd:bin/scx_lavd \
-        --license LICENSE:scx-LICENSE \
-        --license scheds/rust/scx_rusty/LICENSE:scx_rusty-LICENSE \
-        --license scheds/rust/scx_lavd/LICENSE:scx_lavd-LICENSE \
-        --smoke bin/scx_rusty:--version --smoke bin/scx_lavd:--version
+# Every scheduler in schedulers.txt (scx_rusty and scx_lavd today) from the one tag in a single invocation, which is
+# cargo build --release --locked -p <each>; the BPF side is compiled by scx's build scripts with clang. build.sh then stages
+# the binaries, licenses, SOURCE and BUILDINFO and runs each binary's --version.
+RUN STAGE_SH=/binary-build/stage.sh /scx-bin/build.sh /scx-bin/schedulers.txt /scx-bin/upstream.env /src /out
 
 FROM scratch
 

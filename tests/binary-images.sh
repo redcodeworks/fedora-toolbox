@@ -29,21 +29,24 @@ for n in scx-bin extest-bin; do [[ "${sched}" != *"\"${n}\""* ]] && ok "the week
 [[ "$(REPO_ROOT="${src}" "${images}" version-tag scx-bin)" == "v1.1.4" ]] && ok "version tag of a tag pin is the upstream tag" || bad "scx version tag: $(REPO_ROOT="${src}" "${images}" version-tag scx-bin)"
 [[ "$(REPO_ROOT="${src}" "${images}" version-tag extest-bin)" == "commit-cb77cd4" ]] && ok "version tag of a commit pin is commit-<sha7>" || bad "extest version tag"
 [[ "$(REPO_ROOT="${src}" "${images}" binary-files scx-bin | tr '\n' ' ')" == "bin/scx_rusty bin/scx_lavd " ]] && ok "scx-bin must carry bin/scx_rusty and bin/scx_lavd" || bad "scx binary files"
-[[ "$(REPO_ROOT="${src}" "${images}" binary-files extest-bin)" == "lib64/libextest.so" ]] && ok "extest-bin must carry lib64/libextest.so" || bad "extest binary files"
+[[ "$(REPO_ROOT="${src}" "${images}" binary-files extest-bin | tr '\n' ' ')" == "lib64/libextest.so lib/libextest.so " ]] && ok "extest-bin must carry lib64/libextest.so and lib/libextest.so" || bad "extest binary files"
 
 # --- pins and build commands of the real images
 # shellcheck source=/dev/null
 . "${src}/binary-build/upstream-env.sh"
 upstream_env_load "${src}/scx-bin/upstream.env" && [[ "${UPSTREAM_REPO}" == sched-ext/scx && -n "${UPSTREAM_TAG}" ]] && ok "scx-bin pins a tag of sched-ext/scx" || bad "scx upstream.env"
 upstream_env_load "${src}/extest-bin/upstream.env" && [[ "${UPSTREAM_REPO}" == Supreeeme/extest && -z "${UPSTREAM_TAG}" && "${UPSTREAM_COMMIT}" == cb77cd4f80f83393a24bae17dd975e14fa6eb1b2 ]] && ok "extest-bin pins the commit cb77cd4f, no tag" || bad "extest upstream.env"
-grep -qx 'RUN cargo build --release --locked -p scx_rusty -p scx_lavd' "${src}/scx-bin/Containerfile" && ok "scx-bin builds both schedulers from one tag with --locked" || bad "scx cargo command"
-grep -qx 'RUN cargo build --release --locked --target x86_64-unknown-linux-gnu' "${src}/extest-bin/Containerfile" && ok "extest-bin builds like the octarine-os recipe (--locked, x86_64 target)" || bad "extest cargo command"
-grep -q 'target/x86_64-unknown-linux-gnu/release/libextest.so:lib64/libextest.so' "${src}/extest-bin/Containerfile" && ok "extest-bin installs target/x86_64-unknown-linux-gnu/release/libextest.so as lib64/libextest.so" || bad "extest install path"
+grep -q '^(cd "${srcdir}" && cargo build --release --locked "${pkgs\[@\]}")$' "${src}/scx-bin/build.sh" && ok "scx-bin builds its schedulers with cargo build --release --locked -p <each>" || bad "scx cargo command"
+[[ "$(sed -e 's/[[:space:]]*#.*$//' -e '/^$/d' "${src}/scx-bin/schedulers.txt" | tr '\n' ' ')" == "scx_rusty scx_lavd " ]] && ok "scx-bin schedulers.txt lists scx_rusty and scx_lavd" || bad "schedulers.txt"
+grep -qx 'RUN cargo build --release --locked --target x86_64-unknown-linux-gnu' "${src}/extest-bin/Containerfile" && ok "extest-bin builds the 64-bit library like the octarine-os recipe (--locked, x86_64 target)" || bad "extest cargo command 64"
+grep -qx 'RUN cargo build --release --locked --target i686-unknown-linux-gnu' "${src}/extest-bin/Containerfile" && ok "extest-bin builds the 32-bit library (--locked, i686 target)" || bad "extest cargo command 32"
+grep -q 'target/x86_64-unknown-linux-gnu/release/libextest.so:lib64/libextest.so' "${src}/extest-bin/Containerfile" && grep -q 'target/i686-unknown-linux-gnu/release/libextest.so:lib/libextest.so' "${src}/extest-bin/Containerfile" && ok "extest-bin installs the x86_64 build as lib64/libextest.so and the i686 build as lib/libextest.so" || bad "extest install paths"
+grep -q -- '--elf-x86-64 lib64/libextest.so --elf-i386 lib/libextest.so' "${src}/extest-bin/Containerfile" && grep -q -- "--info 'targets: x86_64-unknown-linux-gnu" "${src}/extest-bin/Containerfile" && ok "extest-bin checks the ELF class of each library and records both targets in BUILDINFO" || bad "extest elf checks"
 for d in scx-bin extest-bin; do
     head=$(grep -E '^FROM ' "${src}/${d}/Containerfile" | head -n1)
     [[ "${head}" =~ ^FROM\ registry.fedoraproject.org/fedora:45@sha256:[0-9a-f]{64}\ AS\ build$ ]] && ok "${d}: the builder is Fedora 45 pinned by digest" || bad "${d}: builder FROM: ${head}"
     [[ "$(grep -E '^FROM ' "${src}/${d}/Containerfile" | tail -n1)" == "FROM scratch" ]] && ok "${d}: the published stage is FROM scratch" || bad "${d}: final stage"
-    grep -q '/binary-build/fetch-source.sh /upstream.env /src' "${src}/${d}/Containerfile" && ok "${d}: the source comes through the commit-verifying fetch" || bad "${d}: fetch-source"
+    grep -q '/binary-build/fetch-source.sh /.*upstream.env /src' "${src}/${d}/Containerfile" && ok "${d}: the source comes through the commit-verifying fetch" || bad "${d}: fetch-source"
     sed -n '2,3p' "${src}/cosign.pub" | while read -r l; do grep -qF "${l}" "${src}/${d}/README.md" || exit 1; done && grep -q 'cosign verify --key' "${src}/${d}/README.md" && ok "${d}/README.md: pin by digest and the current cosign.pub" || bad "${d}/README.md"
 done
 
@@ -143,8 +146,38 @@ stage --bin target/release/tool:bin/tool --license lic/missing:l && bad "stage: 
 printf '#!/bin/sh\nexit 3\n' > "${sdir}/target/release/broken"
 stage --bin target/release/broken:bin/broken --license lic/LICENSE:l --smoke bin/broken:--version && bad "stage: a failing smoke test must fail" || ok "stage: a binary that fails --version fails the build"
 stage --bin target/release/tool:bin/tool --license lic/LICENSE:l --elf-x86-64 bin/tool && ok "stage: an x86-64 ELF object passes the architecture check" || bad "elf check: $(cat "${tmp}/stage.log")"
+stage --bin target/release/tool:bin/tool --license lic/LICENSE:l --elf-i386 bin/tool 2> /dev/null && bad "stage: a 64-bit file must fail the 32-bit check" || ok "stage: a 64-bit file fails the --elf-i386 check"
+# a 32-bit ELF header (class ELF32, machine Intel 80386) built by hand
+python3 -I - "${sdir}/target/release/lib32.so" <<'PYEOF'
+import struct, sys
+h = b"\x7fELF" + bytes([1, 1, 1, 0]) + bytes(8) + struct.pack("<HHIIIIIHHHHHH", 3, 3, 1, 0, 0, 0, 0, 52, 32, 0, 40, 0, 0)
+open(sys.argv[1], "wb").write(h)
+PYEOF
+stage --bin target/release/lib32.so:lib/lib32.so --license lic/LICENSE:l --elf-i386 lib/lib32.so --info 'targets: a, b' && ok "stage: a 32-bit Intel 80386 object passes --elf-i386" || bad "elf32 check: $(cat "${tmp}/stage.log")"
+grep -qx 'targets: a, b' "${tmp}/out/BUILDINFO" && ok "stage: --info lines appear in BUILDINFO" || bad "BUILDINFO info line"
+stage --bin target/release/lib32.so:lib/lib32.so --license lic/LICENSE:l --elf-x86-64 lib/lib32.so 2> /dev/null && bad "stage: a 32-bit object must fail --elf-x86-64" || ok "stage: a 32-bit object fails the 64-bit check"
 printf 'not elf' > "${sdir}/target/release/text"
 stage --bin target/release/text:bin/text --license lic/LICENSE:l --elf-x86-64 bin/text 2> /dev/null && bad "stage: a non-ELF file must fail the check" || ok "stage: a file that is not an ELF object fails the check"
+
+# --- scx-bin/build.sh: the scheduler list drives cargo, the binaries and the licenses (a stub cargo and stub stage.sh)
+bsrc="${tmp}/scxsrc"
+mkdir -p "${bsrc}/scheds/rust/scx_a" "${bsrc}/scheds/rust/scx_b" "${bsrc}/scheds/experimental/scx_c" "${tmp}/stub" "${tmp}/bin"
+for n in rust/scx_a rust/scx_b experimental/scx_c; do echo "lic ${n}" > "${bsrc}/scheds/${n}/LICENSE"; done
+echo root > "${bsrc}/LICENSE"
+printf '#!/usr/bin/env bash\necho "cargo $*" >> "${CALLS}"\n' > "${tmp}/bin/cargo"
+printf '#!/usr/bin/env bash\necho "stage $*" >> "${CALLS}"\n' > "${tmp}/stub/stage.sh"
+chmod +x "${tmp}/bin/cargo" "${tmp}/stub/stage.sh"
+export CALLS="${tmp}/calls"
+sbuild() { : > "${CALLS}"; printf '%s\n' "$@" > "${tmp}/sched.txt"; PATH="${tmp}/bin:${PATH}" STAGE_SH="${tmp}/stub/stage.sh" "${src}/scx-bin/build.sh" "${tmp}/sched.txt" "${tmp}/good.env" "${bsrc}" "${tmp}/o" > "${tmp}/sb.log" 2>&1; }
+sbuild "# comment" scx_a "scx_b  # trailing"
+grep -qx 'cargo build --release --locked -p scx_a -p scx_b' "${CALLS}" && ok "scx build: one cargo call, --locked, a -p per scheduler in the list" || bad "scx build cargo: $(cat "${CALLS}" "${tmp}/sb.log")"
+grep -q -- '--bin target/release/scx_a:bin/scx_a --smoke bin/scx_a:--version' "${CALLS}" && grep -q -- '--license scheds/rust/scx_b/LICENSE:scx_b-LICENSE' "${CALLS}" && grep -q -- '--license LICENSE:scx-LICENSE' "${CALLS}" && ok "scx build: each scheduler is staged as /bin/<name> with its own LICENSE, smoke-tested with --version" || bad "scx build stage: $(cat "${CALLS}")"
+sbuild scx_a scx_b scx_c
+grep -qx 'cargo build --release --locked -p scx_a -p scx_b -p scx_c' "${CALLS}" && grep -q -- '--license scheds/experimental/scx_c/LICENSE:scx_c-LICENSE' "${CALLS}" && ok "scx build: adding a line to the list adds a scheduler (also under scheds/experimental), no code change" || bad "scx build third: $(cat "${CALLS}")"
+sbuild scx_missing && bad "scx build: an unknown scheduler must fail" || ok "scx build: a name that is not a scheduler directory fails before cargo runs"
+sbuild scx_a scx_a && bad "scx build: a duplicate must fail" || ok "scx build: a duplicate scheduler fails"
+sbuild '# nothing' && bad "scx build: an empty list must fail" || ok "scx build: an empty list fails"
+sbuild 'bad name' && bad "scx build: a bad name must fail" || ok "scx build: a bad scheduler name fails"
 
 # --- the weekly upstream check with a stub gh (replies from files named after the API path)
 mkdir -p "${tmp}/bin" "${tmp}/gh"
