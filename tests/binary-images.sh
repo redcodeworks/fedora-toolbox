@@ -179,6 +179,7 @@ stage --bin target/release/text:bin/text --license lic/LICENSE:l --elf-x86-64 bi
 bsrc="${tmp}/scxsrc"
 mkdir -p "${bsrc}/scheds/rust/scx_a" "${bsrc}/scheds/rust/scx_b" "${bsrc}/scheds/experimental/scx_c" "${tmp}/stub" "${tmp}/bin"
 for n in rust/scx_a rust/scx_b experimental/scx_c; do echo "lic ${n}" > "${bsrc}/scheds/${n}/LICENSE"; done
+mkdir -p "${bsrc}/scheds/rust/scx_nolic"
 echo root > "${bsrc}/LICENSE"
 printf '#!/usr/bin/env bash\necho "cargo $*" >> "${CALLS}"\n' > "${tmp}/bin/cargo"
 printf '#!/usr/bin/env bash\necho "stage $*" >> "${CALLS}"\n' > "${tmp}/stub/stage.sh"
@@ -198,11 +199,13 @@ sbuild 'bad name\t\tX' && bad "scx build: a bad name must fail" || ok "scx build
 sbuild 'scx_a\t\t' && bad "scx build: an empty description must fail" || ok "scx build: an empty description fails"
 sbuild 'scx_a\tsix\tA' && bad "scx build: a bad kernel must fail" || ok "scx build: a minimum kernel that is not MAJOR.MINOR fails"
 sbuild 'scx_a\tA description without the kernel column' && bad "scx build: two fields must fail" || ok "scx build: a row without three tab separated fields fails"
+sbuild 'scx_a\t\tA' 'scx_nolic\t\tNo LICENSE file of its own'
+grep -qx 'cargo build --release --locked -p scx_a -p scx_nolic' "${CALLS}" && ! grep -q 'scx_nolic-LICENSE' "${CALLS}" && grep -q -- '--bin target/release/scx_nolic:bin/scx_nolic' "${CALLS}" && ok "scx build: a scheduler directory without a LICENSE (scx_cake) is built and staged, the repository LICENSE covers it" || bad "scx build no license: $(cat "${CALLS}" "${tmp}/sb.log")"
 # the real list through the same script: all seven present, one manifest line each, no empty description
 rsrc="${tmp}/realsrc"
 mkdir -p "${rsrc}/scheds/rust" "${tmp}/o2"
 echo root > "${rsrc}/LICENSE"
-for n in $(grep -vE '^[[:space:]]*(#|$)' "${tsv}" | cut -f1); do mkdir -p "${rsrc}/scheds/rust/${n}"; echo "lic ${n}" > "${rsrc}/scheds/rust/${n}/LICENSE"; done
+for n in $(grep -vE '^[[:space:]]*(#|$)' "${tsv}" | cut -f1); do mkdir -p "${rsrc}/scheds/rust/${n}"; [[ "${n}" == scx_cake ]] || echo "lic ${n}" > "${rsrc}/scheds/rust/${n}/LICENSE"; done
 : > "${CALLS}"
 PATH="${tmp}/bin:${PATH}" STAGE_SH="${tmp}/stub/stage.sh" "${src}/scx-bin/build.sh" "${tsv}" "${tmp}/good.env" "${rsrc}" "${tmp}/o2" > "${tmp}/sb2.log" 2>&1 && ok "scx build: the real schedulers.tsv runs through build.sh" || bad "real list: $(cat "${tmp}/sb2.log")"
 man="${tmp}/o2/schedulers.tsv"
