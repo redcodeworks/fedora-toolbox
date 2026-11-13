@@ -2,4 +2,4 @@
 *
 !fedora-toolbox/build_files
 !dev-packages/dev.txt
-!dev-packages/install.sh
+!package-installer/install.sh

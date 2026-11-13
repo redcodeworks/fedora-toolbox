@@ -206,7 +206,7 @@ jobs:
         run: just smoke "${NAME}" "${TAG}"
 
       # A data image (IMAGE_KIND=list, FROM scratch) has no shell to run a smoke test in: check
-      # instead that the image carries the files of its directory
+      # instead that the image carries the files image.env names (DATA_FILES: <repo path>:<image path>)
       - name: Check data image contents
         if: ${{ hashFiles(format('{0}/tests/smoke.sh', inputs.image_dir)) == '' }}
         env:
@@ -214,11 +214,16 @@ jobs:
         run: |
           set -euo pipefail
           cid=$(podman create "localhost/${LOCAL_NAME}:${TAG}" /install.sh)
-          for pair in dev.txt:dev.txt install.sh:install.sh README.md:README; do
-            podman cp "${cid}:/${pair#*:}" "${RUNNER_TEMP}/check-${pair%%:*}"
-            cmp "${RUNNER_TEMP}/check-${pair%%:*}" "${DIR}/${pair%%:*}"
-            echo "ok: /${pair#*:} matches ${DIR}/${pair%%:*}"
-          done
+          n=0
+          while IFS= read -r pair; do
+            [[ -n "${pair}" ]] || continue
+            srcpath=${pair%%:*}; dst=${pair#*:}
+            podman cp "${cid}:/${dst}" "${RUNNER_TEMP}/check-${dst}"
+            cmp "${RUNNER_TEMP}/check-${dst}" "${srcpath}"
+            echo "ok: /${dst} matches ${srcpath}"
+            n=$((n + 1))
+          done < <(.github/scripts/images.sh data-files "${DIR}")
+          [[ "${n}" -gt 0 ]] || { echo "::error::${DIR}/image.env has no DATA_FILES to check"; exit 1; }
           podman rm "${cid}" > /dev/null
 
       - name: Login to GitHub Container Registry

@@ -1,0 +1,6 @@
+# Build context is the repository root: send only what the ctx stage copies
+*
+!dna-toolbox
+!dna-packages/core.txt
+!dna-packages/optional.txt
+!package-installer/install.sh

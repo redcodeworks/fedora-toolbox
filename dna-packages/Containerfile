@@ -1,0 +1,25 @@
+# Published as ghcr.io/redcodeworks/dna-packages: the package manifest of dna-toolbox (core.txt installed
+# strictly, optional.txt best effort) and the shared installer, nothing else. No base image, no shell, no packages.
+# dna-toolbox builds from the same in-repo files. Build context: the repository root.
+FROM scratch
+
+# Build values passed by CI (podman build --build-arg ...); no secrets
+ARG IMAGE_VERSION=dev
+ARG IMAGE_REVISION=unknown
+ARG IMAGE_CREATED=unknown
+
+COPY dna-packages/core.txt dna-packages/optional.txt package-installer/install.sh /
+COPY dna-packages/README.md /README
+
+LABEL maintainer="redcodeworks/fedora-toolbox" \
+      org.opencontainers.image.authors="redcodeworks" \
+      org.opencontainers.image.vendor="redcodeworks" \
+      org.opencontainers.image.title="dna-packages" \
+      org.opencontainers.image.description="Package manifest of dna-toolbox (core and optional lists) and its installer" \
+      org.opencontainers.image.url="https://github.com/redcodeworks/fedora-toolbox" \
+      org.opencontainers.image.documentation="https://github.com/redcodeworks/fedora-toolbox/blob/main/dna-packages/README.md" \
+      org.opencontainers.image.source="https://github.com/redcodeworks/fedora-toolbox" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.version="${IMAGE_VERSION}" \
+      org.opencontainers.image.revision="${IMAGE_REVISION}" \
+      org.opencontainers.image.created="${IMAGE_CREATED}"

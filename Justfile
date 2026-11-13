@@ -57,6 +57,7 @@ test:
     tests/dev-packages-workflow.sh
     tests/push-tags.sh
     tests/workflow-triggers.sh
+    tests/package-manifests.sh
 
 # Build the dna-stack contexts (Connect, Airflow, Superset) with podman to catch a broken Containerfile; needs network, takes minutes
 [group('Image')]
