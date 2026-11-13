@@ -10,6 +10,8 @@ Ready-made development and gaming containers for [distrobox](https://distrobox.i
 | [`gaming-packages`](gaming-packages/) | Not a box: the gaming package list and its installer as a small signed image, for other Fedora-based images (see its README) |
 | [`dna-toolbox`](dna-toolbox/) | Data, analytics and AI box: Python and JVM data tooling, GPU toolkits (ROCm or CUDA) installed on demand with `dna-gpu`, plus `dna-stack` to start lakehouse server containers (Postgres, SeaweedFS, Lakekeeper, Trino, and more) on your host from the box; the heavier services (Kafka Connect, Airflow, Superset) are built on your machine the first time you start them; work in progress |
 | [`dna-packages`](dna-packages/) | Not a box: the package lists of `dna-toolbox` and their installer as a small signed image, for other Fedora-based images (see its README) |
+| [`scx-bin`](scx-bin/) | Not a box: the `scx_rusty` and `scx_lavd` sched_ext CPU schedulers built from a pinned upstream release, as a small signed image other images can copy from |
+| [`extest-bin`](extest-bin/) | Not a box: `libextest.so` ([extest](https://github.com/Supreeeme/extest)) built from a pinned upstream commit (x86_64), as a small signed image |
 
 ## Requirements
 

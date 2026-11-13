@@ -1,0 +1,70 @@
+---
+name: Check upstream releases
+# Weekly: for every binary image (IMAGE_KIND=binary: scx-bin, extest-bin) ask upstream for its latest release and, when it is
+# newer than the pin in <image>/upstream.env, open or update ONE bump pull request on the branch bump/<image> into
+# `testing`. It changes only upstream.env; nothing is built or published here. Scheduled workflows run from main only, so
+# the first scheduled run follows the first promotion that carries this file.
+#
+# Pushes and pull requests made with the default GITHUB_TOKEN start no other workflow, so the required checks (`test`,
+# `secrets`) would never run on a bump PR. When the repository secret BUMP_TOKEN is set (a token limited to this
+# repository with Contents and Pull requests write) it is used instead and the checks start by themselves; without it the
+# PR says that they must be started by hand (see .github/scripts/bump-pr.sh).
+on:
+  schedule:
+    - cron: '0 7 * * 1'  # Mondays 07:00 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: upstream-check
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  check:
+    name: Check upstream releases
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout testing
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: testing
+          fetch-depth: 0
+          token: ${{ secrets.BUMP_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Ask upstream and open bump PRs
+        env:
+          GH_TOKEN: ${{ secrets.BUMP_TOKEN || secrets.GITHUB_TOKEN }}
+          BUMP_TOKEN_SET: ${{ secrets.BUMP_TOKEN != '' }}
+        run: |
+          set -uo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          failed=0
+          {
+            echo "## Upstream check"
+            echo
+          } >> "${GITHUB_STEP_SUMMARY}"
+          if [[ "${BUMP_TOKEN_SET}" != "true" ]]; then
+            echo "::notice::BUMP_TOKEN is not set: bump PRs are opened with the default token and their checks must be started by hand"
+          fi
+          for dir in $(.github/scripts/images.sh dirs binary); do
+            decision=$(.github/scripts/upstream-check.sh "${dir}")
+            echo "${dir}: ${decision}"
+            echo "- \`${dir}\`: ${decision}" >> "${GITHUB_STEP_SUMMARY}"
+            read -r verb tag commit _ <<<"${decision}"
+            case "${verb}" in
+              bump)
+                if ! .github/scripts/bump-pr.sh "${dir}" "${tag}" "${commit}"; then
+                  echo "::error::could not open or update the bump PR for ${dir}"
+                  failed=1
+                fi
+                ;;
+              unreachable) echo "::warning::${dir}: ${decision}" ;;
+              *) echo "::notice::${dir}: nothing to bump (${decision})" ;;
+            esac
+          done
+          exit "${failed}"
