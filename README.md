@@ -34,7 +34,7 @@ cosign verify --key cosign.pub ghcr.io/redcodeworks/fedora-toolbox:latest
 
 ## Contributing
 
-Issues and pull requests are welcome, though I only maintain this for my own use. Work on the `testing` branch and open a pull request into `main`. `just list` shows the images, `just lint` checks the repo, and `just new-image <name>` starts a new one.
+Issues and pull requests are welcome, though I only maintain this for my own use. Work on a branch and open a pull request into `testing`; changes reach `main` in a later pull request from `testing`. `just list` shows the images, `just lint` checks the repo, and `just new-image <name>` starts a new one.
 
 ## License
 

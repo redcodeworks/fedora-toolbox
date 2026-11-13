@@ -7,7 +7,7 @@ name: Build one image
 #
 # Branch model: pushes to `testing` publish `testing`, `testing-<short sha>` and
 # `testing-<YYYYMMDD>-<short sha>`; main (push, weekly schedule, manual run) publishes `latest` and
-# `latest-<YYYYMMDD>-<short sha>`. Pull request builds publish nothing and never reach signing.
+# `latest-<YYYYMMDD>-<short sha>`. A manual run from another branch builds and smoke-tests only.
 on:
   workflow_call:
     inputs:
@@ -135,22 +135,19 @@ jobs:
         with:
           tool: just
 
-      # main publishes `latest*`, testing publishes `testing*`; pull request builds publish nothing
+      # main publishes `latest*`, testing publishes `testing*`; a manual run from any other branch publishes nothing
       - name: Choose channel
         id: channel
         env:
-          EVENT: ${{ github.event_name }}
           REF: ${{ github.ref }}
           NAME: ${{ inputs.image_name }}
         run: |
           publish=false
           tag=testing
-          if [[ "${EVENT}" != "pull_request" ]]; then
-            case "${REF}" in
-              refs/heads/main) publish=true; tag=latest ;;
-              refs/heads/testing) publish=true ;;
-            esac
-          fi
+          case "${REF}" in
+            refs/heads/main) publish=true; tag=latest ;;
+            refs/heads/testing) publish=true ;;
+          esac
           dated="${tag}-$(date -u +%Y%m%d)-${GITHUB_SHA::7}"
           # testing also gets a plain testing-<short sha> tag: the promote decision looks it up
           if [[ "${tag}" == "testing" ]]; then alias="${tag} testing-${GITHUB_SHA::7} ${dated}"; else alias="${tag} ${dated}"; fi
@@ -240,21 +237,14 @@ jobs:
           ALIAS_TAGS: ${{ steps.channel.outputs.alias_tags }}
         run: |
           set -euox pipefail
-          : > "${RUNNER_TEMP}/digests"
-          for tag in ${ALIAS_TAGS}; do
-            podman push --digestfile="${RUNNER_TEMP}/digestfile" "localhost/${LOCAL_NAME}:${tag}" "${IMAGE}:${tag}"
-            cat "${RUNNER_TEMP}/digestfile" >> "${RUNNER_TEMP}/digests"
-            echo >> "${RUNNER_TEMP}/digests"
-          done
-
-          # Keep every distinct digest and sign each of them (the tags may not
-          # all end up with the same manifest digest)
-          digests=$(sort -u "${RUNNER_TEMP}/digests" | grep -v '^$' | tr '\n' ' ')
-          echo "digests=${digests}" >> "$GITHUB_OUTPUT"
+          # One push, the other tags are registry-side copies of its digest: every tag shares one manifest digest
+          # (separate pushes of one image give a digest per tag) and one signature covers them
+          read -r first _ <<< "${ALIAS_TAGS}"
+          .github/scripts/push-tags.sh "localhost/${LOCAL_NAME}:${first}" "${IMAGE}" ${ALIAS_TAGS}
 
   # Signing runs in its own job so the private key is only reachable through the
-  # `signing` environment (limited to the main and testing branches). Pull request
-  # builds never publish, so they never reach this job or the key.
+  # `signing` environment (limited to the main and testing branches). Runs that publish nothing
+  # never reach this job or the key.
   sign:
     name: Sign and verify image
     needs: [promote, build_push]
