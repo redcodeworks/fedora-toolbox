@@ -13,7 +13,7 @@ fail=0
 err() { echo "lint: $*" >&2; fail=1; }
 
 shopt -s nullglob
-scripts=(.github/scripts/*.sh tests/*.sh ./*/build_files/*.sh ./*/tests/*.sh ./package-installer/install.sh ./*/stack/bin/* ./*/bin/*)
+scripts=(.github/scripts/*.sh tests/*.sh ./*/build_files/*.sh ./*/tests/*.sh ./package-installer/install.sh ./datastore-images/validate.sh ./*/stack/bin/* ./*/bin/*)
 bash -n "${scripts[@]}" || fail=1
 if command -v shellcheck >/dev/null; then
     shellcheck -x -P SCRIPTDIR "${scripts[@]}" || fail=1
@@ -35,6 +35,15 @@ for d in $(image_dirs); do
         [[ -f "${d}/README.md" ]] || err "${d}/README.md missing"
         # the lists are the .txt files of the directory (dna-packages has two: core and optional)
         lists=("${d}"/*.txt)
+        # a list image with its own validator (LIST_VALIDATOR in image.env) is not a package list: the validator checks it
+        validator=$(_env_var "${d}" LIST_VALIDATOR)
+        if [[ -n "${validator}" ]]; then
+            [[ -x "${validator}" ]] || err "${d}/image.env: LIST_VALIDATOR ${validator} missing or not executable"
+            for list in "${lists[@]}"; do
+                "${validator}" "${list}" >/dev/null || err "${list}: failed ${validator}"
+            done
+            lists=()
+        fi
         [[ -n "$(image_data_files "${d}")" ]] || err "${d}/image.env: DATA_FILES missing (the build checks the image against the repository)"
         while IFS=: read -r srcpath _; do
             [[ -f "${srcpath}" ]] || err "${d}/image.env: DATA_FILES names ${srcpath}, which does not exist"
