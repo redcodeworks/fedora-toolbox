@@ -1,0 +1,5 @@
+*
+!dna-packages/core.txt
+!dna-packages/optional.txt
+!dna-packages/README.md
+!package-installer/install.sh

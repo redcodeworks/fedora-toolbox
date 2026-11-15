@@ -1,7 +1,8 @@
-# Build context is mounted, not copied into the final image
+# Build context is mounted, not copied into the final image. The context is the repository root (BUILD_CONTEXT=. in
+# image.env): the list is shared with the published gaming-packages image, the installer with every manifest image.
 FROM scratch AS ctx
-COPY build_files /build_files
-COPY packages /packages
+COPY fedora-gaming/build_files /build_files
+COPY gaming-packages/gaming.txt package-installer/install.sh /gaming-packages/
 
 # Base: Universal Blue's toolbox (github.com/ublue-os/toolboxes), Fedora 44, moving `latest` tag
 # only. Renovate pins the digest. Terra is dropped on purpose in build.sh (see CLAUDE.md).

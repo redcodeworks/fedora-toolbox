@@ -1,5 +1,6 @@
 # Published as ghcr.io/redcodeworks/dev-packages: the developer package list and its installer,
-# nothing else. No base image, no shell, no packages (this is data, not a toolbox).
+# nothing else. No base image, no shell, no packages (this is data, not a toolbox). The installer is the shared
+# package-installer/install.sh. Build context: the repository root (BUILD_CONTEXT=. in image.env).
 # Consumers copy or bind-mount it into their own build; see README.md.
 FROM scratch
 
@@ -8,8 +9,8 @@ ARG IMAGE_VERSION=dev
 ARG IMAGE_REVISION=unknown
 ARG IMAGE_CREATED=unknown
 
-COPY dev.txt install.sh /
-COPY README.md /README
+COPY dev-packages/dev.txt package-installer/install.sh /
+COPY dev-packages/README.md /README
 
 LABEL maintainer="redcodeworks/fedora-toolbox" \
       org.opencontainers.image.authors="redcodeworks" \

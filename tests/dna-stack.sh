@@ -10,7 +10,7 @@ echo "ok   dna-stack static checks"
 tb="${here}/dna-toolbox"
 # shellcheck source=/dev/null
 ( set -a; . "${tb}/versions.env"; set +a
-  grep -qx "java-${DNA_JAVA_VERSION}-openjdk" "${tb}/packages/optional.txt" ) \
+  grep -qx "java-${DNA_JAVA_VERSION}-openjdk" "${tb}/../dna-packages/optional.txt" ) \
     || { echo "FAIL optional.txt lacks java-<DNA_JAVA_VERSION>-openjdk" >&2; exit 1; }
 while IFS='|' read -r name _ url sha _; do
     [[ -z "${name}" || "${name}" == \#* ]] && continue

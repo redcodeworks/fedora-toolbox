@@ -1,0 +1,79 @@
+---
+name: Test
+# The fast lane (GitLab Flow): quick checks and a secret scan, no image build, nothing published. It runs for every push to a
+# dev branch (checked before the pull request exists) and for pull requests into `testing`. The image build is build.yml
+# (pushes to `testing` and `main`, the weekly schedule and manual runs).
+on:
+  push:
+    branches-ignore:
+      - main
+      - testing
+  pull_request:
+    branches:
+      - testing
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Runs on the hosted runner (not a Fedora container): it ships podman, skopeo, jq, yq and shellcheck, which the
+  # tests and lint use, and `just` comes from the pinned setup action.
+  test:
+    name: test
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install just
+        uses: ./.github/actions/setup-tool
+        with:
+          tool: just
+
+      - name: Check the tools the tests rely on
+        run: |
+          for tool in bash git python3 jq skopeo sha256sum; do
+            command -v "${tool}" > /dev/null || { echo "::error::${tool} is missing on the runner"; exit 1; }
+          done
+          python3 -I -c 'import yaml' || { echo "::error::python3 has no PyYAML (the workflow checks would be skipped)"; exit 1; }
+
+      - name: Justfile format
+        run: just check
+
+      - name: Lint (scripts, image layouts, package lists)
+        run: just lint
+
+      - name: Planning, promotion, push, prune, scaffold and stack tests
+        run: just test
+
+  secrets:
+    name: secrets
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out the full history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Install the pinned gitleaks
+        env:
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+        run: |
+          f="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors -o "${RUNNER_TEMP}/${f}" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${f}"
+          echo "${GITLEAKS_SHA256}  ${RUNNER_TEMP}/${f}" | sha256sum -c -
+          mkdir -p "${RUNNER_TEMP}/gitleaks"
+          tar -xzf "${RUNNER_TEMP}/${f}" -C "${RUNNER_TEMP}/gitleaks" gitleaks
+          echo "${RUNNER_TEMP}/gitleaks" >> "${GITHUB_PATH}"
+
+      - name: Scan the full history
+        run: gitleaks git --redact --no-banner .

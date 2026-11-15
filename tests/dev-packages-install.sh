@@ -7,7 +7,7 @@ set -uo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 src="${here}/.."
-installer="${src}/dev-packages/install.sh"
+installer="${src}/package-installer/install.sh"
 pass=0
 failn=0
 ok() { pass=$((pass + 1)); echo "ok   $1"; }
@@ -124,7 +124,7 @@ if [[ -e "${CLEANUP_ROOT}/var/log/dnf5.log" ]] && ! grep -q 'clean all' "${STUB_
 
 # default list: dev.txt next to the script (copy both into a bind-mount-like directory)
 mkdir -p "${tmp}/mnt"
-cp "${src}/dev-packages/install.sh" "${tmp}/mnt/"
+cp "${src}/package-installer/install.sh" "${tmp}/mnt/"
 printf 'gcc\n' > "${tmp}/mnt/dev.txt"
 : > "${STUB_LOG}"
 if out=$(bash "${tmp}/mnt/install.sh" 2>&1) && grep -q 'install --setopt=strict=1 gcc$' "${STUB_LOG}"; then ok "default list is dev.txt next to the script (works from a bind mount)"; else bad "default list not used: ${out}"; fi

@@ -1,12 +1,15 @@
 # Build context is mounted, not copied into the final image
+# The context is the repository root (BUILD_CONTEXT=. in image.env): the package lists are shared with the published
+# dna-packages image (dna-packages/), the installer with every manifest image (package-installer/). Built from these
+# in-repo files, never from the published image.
 FROM scratch AS ctx
-COPY build_files /build_files
-COPY packages /packages
-COPY stack /stack
-COPY versions.env /versions.env
-COPY downloads.lock /downloads.lock
-COPY files /files
-COPY bin /bin_dna
+COPY dna-toolbox/build_files /build_files
+COPY dna-packages/core.txt dna-packages/optional.txt package-installer/install.sh /dna-packages/
+COPY dna-toolbox/stack /stack
+COPY dna-toolbox/versions.env /versions.env
+COPY dna-toolbox/downloads.lock /downloads.lock
+COPY dna-toolbox/files /files
+COPY dna-toolbox/bin /bin_dna
 
 # Base: Universal Blue's toolbox (github.com/ublue-os/toolboxes), Fedora 44, moving `latest` tag
 # only. Renovate pins the digest.
