@@ -1,10 +1,8 @@
 #!/usr/bin/bash
 # Build the gaming toolbox: drop Terra so Fedora's Mesa is the only Mesa (x86_64 and i686 from the
-# same repo and version), then install gaming-packages/gaming.txt through the shared installer. Called from the Containerfile with the
+# same repo and version), then install gaming-packages/fedora.txt and rpmfusion.txt (in that order, one call each) through the shared installer. Called from the Containerfile with the
 # build context mounted at /ctx. Fails loudly on any unavailable package.
 set -euo pipefail
-
-list=/ctx/gaming-packages/gaming.txt
 
 # (a) Drop Terra. The base keeps Terra's Mesa for x86_64 only and hides Fedora's Mesa with an
 # `exclude=mesa-*` override on the fedora repos; Steam needs 32-bit Mesa, which only Fedora ships.
@@ -20,9 +18,12 @@ fi
 # repo with the same version when Steam's dependencies are installed below.
 dnf5 -y distro-sync --refresh 'mesa*'
 
-# (c) The package list ("name", "name.arch" or "@group" per line, comments allowed) through the shared installer:
-# one strict dnf5 install, a missing package aborts the build. This script does its own cleanup (NO_CLEANUP=1).
-NO_CLEANUP=1 bash /ctx/gaming-packages/install.sh "$list"
+# (c) The package lists ("name", "name.arch" or "@group" per line, comments allowed) through the shared installer,
+# one strict dnf5 install per source class, Fedora first (it provides the 32-bit Mesa), then RPM Fusion (Steam).
+# A missing package aborts the build. copr.txt is for the gx host image and is not installed here.
+# This script does its own cleanup (NO_CLEANUP=1).
+NO_CLEANUP=1 bash /ctx/gaming-packages/install.sh /ctx/gaming-packages/fedora.txt
+NO_CLEANUP=1 bash /ctx/gaming-packages/install.sh /ctx/gaming-packages/rpmfusion.txt
 
 # Record what Mesa the image ended up with (shows in the build log)
 rpm -qa --qf '%{NAME}.%{ARCH} %{VERSION}-%{RELEASE} %{VENDOR}\n' 'mesa-*' | sort

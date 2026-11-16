@@ -1,5 +1,6 @@
 # Build context is the repository root: send only what the ctx stage copies
 *
 !fedora-gaming/build_files
-!gaming-packages/gaming.txt
+!gaming-packages/fedora.txt
+!gaming-packages/rpmfusion.txt
 !package-installer/install.sh
