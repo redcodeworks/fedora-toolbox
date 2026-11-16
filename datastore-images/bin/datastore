@@ -29,7 +29,7 @@ pods_active() { local p r=""; for p in datastore-pod.service kafka-pod.service; 
 
 # ---------------------------------------------------------------------------------------------------------------- install
 cmd_install() {
-    local mode=do force=0 parent f name new cur n tmp vendor
+    local mode=apply force=0 parent f name new cur n tmp vendor
     while [ "$#" -gt 0 ]; do
         case "$1" in
             --no) mode=no ;;
@@ -98,7 +98,7 @@ EOF2
 }
 
 cmd_uninstall() {
-    local mode=do cur name f dropins="" running
+    local mode=apply cur name f dropins="" running
     while [ "$#" -gt 0 ]; do
         case "$1" in
             --no) mode=no ;;

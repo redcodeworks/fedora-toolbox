@@ -6,7 +6,7 @@
 # bundle from the repository tree and from a copy laid out like the extracted image. podman, systemctl and journalctl are fakes
 # on a PATH that holds only bash, coreutils, sed and awk; nothing real is created. Image references come from images.txt, never
 # from literals here. Needs: bash. Run: tests/datastore-bundle.sh
-# shellcheck disable=SC2012,SC2016,SC2034,SC2154
+# shellcheck disable=SC2012,SC2016,SC2034,SC2086,SC2154
 set -uo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -335,7 +335,7 @@ check "install: prints how to undo it and what comes next" bash -c "grep -q 'und
 check "install: records what it installed (sha256 and name, one line per file)" bash -c "[ \$(wc -l <'$state/installed') = 11 ] && grep -qE '^[0-9a-f]{64}  postgresql.container\$' '$state/installed'"
 check "install: leaves no staging directory or temporary file behind" bash -c "! ls -A '$root/home/.config/containers' | grep -q stage && ! ls -A '$uh' | grep -q tmp-"
 inodes=$(stat -c '%i' "$uh"/*); : >"$LOG"; run install
-check "install again: idempotent, every file unchanged and not rewritten, exit 0" bash -c "[ $rc = 0 ] && ! grep -qE 'install |update ' '$root/out' && [ \"\$(stat -c '%i' '$uh'/*)\" = \"$(echo "$inodes")\" ] && diff -r '$rq' '$uh'"
+check "install again: idempotent, every file unchanged and not rewritten, exit 0" bash -c "[ $rc = 0 ] && ! grep -qE 'install |update ' '$root/out' && [ \"\$(stat -c '%i' '$uh'/*)\" = \"$inodes\" ] && diff -r '$rq' '$uh'"
 reset0; run install --no
 check "install --no: shows the plan and writes nothing (no units, no record, no reload)" bash -c "[ $rc = 0 ] && grep -q 'Plan only' '$root/out' && [ ! -e '$uh' ] && [ ! -e '$state' ] && ! grep -q daemon-reload '$LOG'"
 reset0; FAKE_UID=0 run install

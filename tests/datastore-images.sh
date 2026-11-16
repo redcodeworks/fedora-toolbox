@@ -2,7 +2,7 @@
 # Tests for the datastore-images list image: the validator accepts the real file and rejects each bad case,
 # the image is in the matrix and out of the weekly schedule, a change to it builds it alone, and the shape
 # of its files (Containerfile, DATA_FILES, README). No network, no podman. Run: tests/datastore-images.sh
-# shellcheck disable=SC2015,SC2016
+# shellcheck disable=SC2012,SC2015,SC2016
 set -uo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
