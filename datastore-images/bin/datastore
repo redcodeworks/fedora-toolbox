@@ -1,0 +1,470 @@
+#!/usr/bin/env bash
+# The opt-in lakehouse datastore as rootless Podman Quadlets (PostgreSQL, Valkey and SeaweedFS in the datastore pod, Kafka in its
+# own pod), stopped until you start them. One entry point; run `datastore --help`. The bundle (images.txt, quadlets/, lib/) is the
+# directory above this script, so the script works from a checkout of the repository and from the extracted signed image alike.
+#   datastore install | uninstall | render DIR
+#   datastore start|stop [datastore|kafka|all] | status | logs SERVICE
+#   datastore setup [--yes|--no] [--status] [--pin SERVICE=TAG] [--unpin SERVICE] [--update] [--backup DIR [--stop]]
+# Needs only bash, coreutils, sed, awk, podman and systemctl (the user instance). DATASTORE_UJUST=1 makes the messages name the
+# `ujust datastore` and `ujust datastore-setup` recipes instead of this script.
+# The `A && B || C` chains below are deliberate: C is always an error exit. The unquoted for-lists are space-separated names.
+# shellcheck disable=SC2015,SC2086
+set -uo pipefail
+
+DS_ROOT=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)
+lib="${DS_ROOT}/lib/datastore.sh"
+# shellcheck source=../lib/datastore.sh
+if [ -r "$lib" ]; then . "$lib"; else echo "The datastore helpers are missing: $lib" >&2; exit 1; fi
+
+ds_text() { sed -e "s|@CMD@|${DS_CMD}|g" -e "s|@SETUP@|${DS_SETUP}|g"; }
+usage="Usage: ${DS_CMD} start|stop [datastore|kafka|all] | status | logs SERVICE | setup [options] | install | uninstall | render DIR | -h"
+setup_usage="Usage: ${DS_SETUP} [--yes|--no] [--status] [--pin SERVICE=TAG] [--unpin SERVICE] [--update] [--backup DIR [--stop]] [-h]"
+
+refuse_root() { if [ "$(id -u)" = 0 ]; then echo "Run this as your user, not as root: the datastore is rootless." >&2; exit 1; fi; }
+need_podman() { command -v podman > /dev/null 2>&1 || { echo "podman is not installed." >&2; exit 1; }; }
+need_installed() { ds_installed || { echo "The datastore units are not installed in ${DS_USER_DIR}. Run: ${DS_CMD} install" >&2; exit 1; }; }
+reload() { systemctl --user daemon-reload || echo "Run: systemctl --user daemon-reload"; }
+ds_sum() { sha256sum "$1" | cut -d' ' -f1; }
+pods_active() { local p r=""; for p in datastore-pod.service kafka-pod.service; do if [ "$(systemctl --user is-active "$p" 2> /dev/null)" = active ]; then r="$r $p"; fi; done; echo "${r# }"; }
+
+# ---------------------------------------------------------------------------------------------------------------- install
+cmd_install() {
+    local mode=do force=0 parent f name new cur n tmp vendor
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --no) mode=no ;;
+            --force) force=1 ;;
+            help | --help | -h)
+                ds_text << 'EOF2'
+Install the datastore Quadlets into your user directory ($HOME/.config/containers/systemd): `@CMD@ install [--no] [--force]`. The units are rendered from this bundle's images.txt into a staging directory, checked (no [Install] section so nothing starts by itself, the unit, pod, network and volume names your data and secrets depend on, one Image= per container that is the pinned reference), then placed one file at a time with an atomic rename; a file that is already identical is left alone, so running it again changes nothing. It runs `systemctl --user daemon-reload`, starts nothing, creates no volume and no secret, and records what it installed in ~/.local/state/datastore/installed. A file of the same name that this tool did not install (or that you edited) is never overwritten unless you pass --force. --no shows the plan only. Undo: `@CMD@ uninstall`.
+EOF2
+                exit 0
+                ;;
+            *) echo "Unknown option: $1" >&2; echo "Usage: ${DS_CMD} install [--no] [--force]" >&2; exit 2 ;;
+        esac
+        shift
+    done
+    refuse_root
+    parent=$(dirname "${DS_USER_DIR}")
+    mkdir -p "${parent}" || { echo "Cannot create ${parent}" >&2; exit 1; }
+    stage=$(mktemp -d "${parent}/.datastore-stage.XXXXXX") || { echo "Cannot create a staging directory in ${parent}" >&2; exit 1; }
+    trap 'rm -rf -- "${stage:?}"' EXIT  # stage is global on purpose: the trap runs after the function returned
+    "${DS_ROOT}/lib/render.sh" "${stage}/out" "${DS_ROOT}" "$(ds_images_file)" > /dev/null || { echo "Nothing installed: the bundle did not render." >&2; exit 1; }
+    ds_validate "${stage}/out" || { echo "Nothing installed: the rendered units failed the checks." >&2; exit 1; }
+
+    declare -A rec=()
+    if [ -f "${DS_RECORD}" ]; then while read -r cur name; do [ -n "${name}" ] && rec["${name}"]=${cur}; done < "${DS_RECORD}"; fi
+    local -a todo=() conflicts=() stale=()
+    declare -A kind=() names=()
+    for f in "${stage}"/out/*; do
+        name=$(basename "${f}")
+        names["${name}"]=1
+        new=$(ds_sum "${f}")
+        if [ ! -e "${DS_USER_DIR}/${name}" ]; then kind["${name}"]=install; todo+=("${name}"); continue; fi
+        cur=$(ds_sum "${DS_USER_DIR}/${name}")
+        if [ "${cur}" = "${new}" ]; then kind["${name}"]=unchanged
+        elif [ "${rec[${name}]:-}" = "${cur}" ] || [ "${force}" = 1 ]; then kind["${name}"]=update; todo+=("${name}")
+        else conflicts+=("${name}"); fi
+    done
+    for name in "${!rec[@]}"; do
+        [ -n "${names[${name}]:-}" ] && continue
+        if [ -e "${DS_USER_DIR}/${name}" ] && [ "$(ds_sum "${DS_USER_DIR}/${name}")" = "${rec[${name}]}" ]; then stale+=("${name}"); fi
+    done
+    if [ "${#conflicts[@]}" -gt 0 ]; then
+        echo "Refused: these files exist in ${DS_USER_DIR}, differ from the bundle and were not installed by this tool (or were edited):" >&2
+        printf '  %s\n' "${conflicts[@]}" >&2
+        echo "Move them away, or pass --force to overwrite them." >&2
+        exit 1
+    fi
+    echo "Installing into ${DS_USER_DIR} (undo: ${DS_CMD} uninstall; volumes and secrets are never touched)"
+    for name in $(printf '%s\n' "${!names[@]}" | sort); do printf '  %-10s %s\n' "${kind[${name}]}" "${name}"; done
+    for name in "${stale[@]}"; do printf '  %-10s %s\n' remove "${name} (no longer in the bundle)"; done
+    if [ "${mode}" = no ]; then echo "Plan only."; exit 0; fi
+    mkdir -p "${DS_USER_DIR}" "${DS_STATE_DIR}" || { echo "Cannot create ${DS_USER_DIR} or ${DS_STATE_DIR}" >&2; exit 1; }
+    for name in "${todo[@]}"; do
+        # a temporary name Quadlet ignores (unknown extension), then an atomic rename
+        tmp="${DS_USER_DIR:?}/${name:?}.tmp-$$"
+        cp -- "${stage}/out/${name}" "${tmp}" && mv -f -- "${tmp}" "${DS_USER_DIR}/${name}" || { rm -f -- "${tmp}"; echo "Failed to write ${DS_USER_DIR}/${name}" >&2; exit 1; }
+    done
+    for name in "${stale[@]}"; do rm -f -- "${DS_USER_DIR:?}/${name:?}"; done
+    for f in "${stage}"/out/*; do printf '%s  %s\n' "$(ds_sum "${f}")" "$(basename "${f}")"; done > "${DS_RECORD}.new" && mv -f -- "${DS_RECORD}.new" "${DS_RECORD}" || { echo "Failed to write ${DS_RECORD}" >&2; exit 1; }
+    reload
+    n=${#todo[@]}
+    echo "Done: ${n} file(s) written, nothing started. Next: ${DS_SETUP} (secrets), then ${DS_CMD} start."
+    vendor=${DATASTORE_VENDOR_DIR:-/usr/share/containers/systemd/users}
+    if [ -e "${vendor}/datastore.pod" ]; then
+        echo "Note: this system also ships units of the same names in ${vendor}; Podman reads your copies in ${DS_USER_DIR} first."
+    fi
+}
+
+cmd_uninstall() {
+    local mode=do cur name f dropins="" running
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --no) mode=no ;;
+            help | --help | -h)
+                ds_text << 'EOF2'
+Remove the datastore Quadlets that `@CMD@ install` placed: `@CMD@ uninstall [--no]`. Only the files recorded in ~/.local/state/datastore/installed are removed, and only when they are unchanged (a file you edited stays). Refused while a datastore pod is running (stop it first: `@CMD@ stop all`). Runs `systemctl --user daemon-reload`. Podman volumes (your data) and secrets are NEVER removed; the commands that delete them are printed for you to run on purpose. Image pins you wrote (drop-ins) stay. --no shows the plan only. Undo: `@CMD@ install`.
+EOF2
+                exit 0
+                ;;
+            *) echo "Unknown option: $1" >&2; echo "Usage: ${DS_CMD} uninstall [--no]" >&2; exit 2 ;;
+        esac
+        shift
+    done
+    refuse_root
+    if [ ! -f "${DS_RECORD}" ]; then echo "Nothing to uninstall: ${DS_RECORD} does not exist (these units were not installed by this tool)."; exit 0; fi
+    running=$(pods_active)
+    if [ -n "${running}" ]; then echo "Refused: ${running} running. Stop it first: ${DS_CMD} stop all" >&2; exit 1; fi
+    echo "Removing the datastore units from ${DS_USER_DIR} (undo: ${DS_CMD} install)"
+    local -a gone=()
+    while read -r cur name; do
+        [ -n "${name}" ] || continue
+        f="${DS_USER_DIR}/${name}"
+        if [ ! -e "${f}" ]; then printf '  %-10s %s\n' absent "${name}"
+        elif [ "$(ds_sum "${f}")" = "${cur}" ]; then printf '  %-10s %s\n' remove "${name}"; gone+=("${name}")
+        else printf '  %-10s %s\n' kept "${name} (edited since the install)"; fi
+    done < "${DS_RECORD}"
+    if [ "${mode}" = no ]; then echo "Plan only."; exit 0; fi
+    for name in "${gone[@]}"; do rm -f -- "${DS_USER_DIR:?}/${name:?}"; done
+    rm -f -- "${DS_RECORD:?}"
+    rmdir "${DS_STATE_DIR}" 2> /dev/null
+    reload
+    for f in "${DS_USER_DIR}"/*.container.d; do [ -d "${f}" ] && dropins="${dropins} $(basename "${f}")"; done
+    [ -z "${dropins}" ] || echo "Your image pins stay:${dropins} (remove them by hand when you no longer want them)."
+    echo "Podman volumes and secrets were NOT touched. To delete the data too (irreversible, back up first with: ${DS_SETUP} --backup DIR):"
+    echo "  podman volume rm ${DS_VOLUMES}"
+    echo "  podman secret rm ${DS_SECRETS_DATASTORE}"
+}
+
+# ---------------------------------------------------------------------------------------------------------- start/stop/...
+cmd_run() {
+    local verb=$1 pods pod rc miss s c st running pin note svc
+    shift
+    target_pods() { # datastore|kafka|all -> pod units
+        case "${1:-datastore}" in
+            datastore) echo datastore-pod.service ;;
+            kafka) echo kafka-pod.service ;;
+            all) echo "datastore-pod.service kafka-pod.service" ;;
+            *) return 1 ;;
+        esac
+    }
+    case "$verb" in
+        start)
+            pods=$(target_pods "${1:-datastore}") || { echo "Unknown target '${1}'. Known: datastore kafka all" >&2; echo "$usage" >&2; exit 2; }
+            need_installed
+            rc=0
+            for pod in $pods; do
+                if [ "$pod" = datastore-pod.service ]; then
+                    miss=$(ds_missing_secrets | tr '\n' ' ')
+                    if [ -n "$miss" ]; then echo "Missing podman secrets: ${miss}. Run: ${DS_SETUP} first." >&2; exit 1; fi
+                    ds_pg_guard || exit 1
+                fi
+                if [ "$(systemctl --user is-active "$pod" 2> /dev/null)" = active ]; then echo "$pod is already running: nothing to do."; continue; fi
+                echo "Starting $pod (undo: ${DS_CMD} stop)"
+                systemctl --user start "$pod" || { echo "Failed: systemctl --user start $pod (journalctl --user -u $pod)" >&2; rc=1; }
+            done
+            exit "$rc"
+            ;;
+        stop)
+            pods=$(target_pods "${1:-datastore}") || { echo "Unknown target '${1}'. Known: datastore kafka all" >&2; echo "$usage" >&2; exit 2; }
+            rc=0
+            for pod in $pods; do
+                if [ "$(systemctl --user is-active "$pod" 2> /dev/null)" != active ]; then echo "$pod is not running: nothing to do."; continue; fi
+                echo "Stopping $pod (undo: ${DS_CMD} start); volumes and data stay"
+                systemctl --user stop "$pod" || { echo "Failed: systemctl --user stop $pod" >&2; rc=1; }
+            done
+            exit "$rc"
+            ;;
+        status)
+            for pod in datastore-pod.service kafka-pod.service; do printf '%-22s %s\n' "$pod" "$(systemctl --user is-active "$pod" 2> /dev/null || true)"; done
+            echo
+            printf '%-12s %-10s %-9s %s\n' SERVICE CONTAINER STATE "IMAGE (running; shipped pin)"
+            for s in $DS_SERVICES; do
+                c=$(ds_container "$s")
+                st=$(podman inspect "$c" --format '{{.State.Status}}' 2> /dev/null || echo "-")
+                running=$(podman inspect "$c" --format '{{.ImageName}}' 2> /dev/null || echo "-")
+                pin=$(ds_effective_image "$s")
+                note=""
+                if [ -n "$(ds_override_image "$s")" ]; then note=" (user override)"; fi
+                printf '%-12s %-10s %-9s %s; pin %s%s\n' "$s" "$c" "$st" "$running" "${pin:-not installed}" "$note"
+            done
+            echo
+            echo "Ports on 127.0.0.1: 5432 PostgreSQL, 6379 Valkey, 8333 S3, 9333 SeaweedFS master, 8889 filer, 9092 Kafka"
+            miss=$(ds_missing_secrets | tr '\n' ' ')
+            echo "Missing secrets: ${miss:-none}"
+            exit 0
+            ;;
+        logs)
+            svc=${1:-}
+            if [ -z "$svc" ] || ! ds_known_service "$svc"; then echo "Unknown service '${svc}'. Known: ${DS_SERVICES}" >&2; exit 2; fi
+            journalctl --user -u "$(ds_unit "$svc")" -n 200 --no-pager
+            exit $?
+            ;;
+    esac
+}
+
+# ------------------------------------------------------------------------------------------------------------------ setup
+cmd_setup() {
+    local mode=ask action=setup pin="" unpin="" backup_dir="" stop_ok=0
+    local s o sh pgm v mp miss svc tag shipped f want img rc stamp pods_running pg_running need_stop p out cur_part stopped pg_refused failed ok ak sk
+    local -a plan
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --yes) mode=yes ;;
+            --no) mode=no ;;
+            --status) action=status ;;
+            --update) action=update ;;
+            --pin) shift; if [ "$#" -eq 0 ]; then echo "--pin needs SERVICE=TAG" >&2; exit 2; fi; action=pin; pin=$1 ;;
+            --pin=*) action=pin; pin=${1#--pin=} ;;
+            --unpin) shift; if [ "$#" -eq 0 ]; then echo "--unpin needs SERVICE" >&2; exit 2; fi; action=unpin; unpin=$1 ;;
+            --unpin=*) action=unpin; unpin=${1#--unpin=} ;;
+            --backup) shift; if [ "$#" -eq 0 ]; then echo "--backup needs a directory" >&2; exit 2; fi; action=backup; backup_dir=$1 ;;
+            --backup=*) action=backup; backup_dir=${1#--backup=} ;;
+            --stop) stop_ok=1 ;;
+            help | --help | -h)
+                ds_text << 'EOF2'
+Set up the opt-in datastore containers (rootless Quadlets: PostgreSQL, Valkey and SeaweedFS in the datastore pod, Kafka in its own pod; nothing starts by itself, use `@CMD@ start`). `@SETUP@ [--yes|--no] [--status] [--pin SERVICE=TAG] [--unpin SERVICE] [--update] [--backup DIR [--stop]]`. The units must be installed first (`@CMD@ install`). Without options: creates the MISSING podman secrets with random values (postgresql-password, valkey-password and seaweedfs-s3-config, a generated S3 identities file); values are never printed or logged and an existing secret is never overwritten; and warns when Podman's storage (where the data volumes live) is under your home. Undo: podman secret rm NAME. --status shows each installed image pin, a user override, the running image, the PostgreSQL data major, the storage location and the volume sizes. Pins: the bundle ships exact tags with digests and never follows a floating tag; --pin SERVICE=TAG (postgresql, valkey, seaweedfs, kafka) writes a Quadlet drop-in $HOME/.config/containers/systemd/<service>.container.d/10-image.conf with that tag in the SAME major (a major change is a manual dump and restore, refused here), --unpin removes it. --update pulls the pinned tags after printing them and saying to back up first; it never restarts a running service. --backup DIR exports the volumes to DIR/<volume>-<date>.tar (PostgreSQL while running through pg_dumpall into DIR/postgresql-<date>.sql; Valkey, SeaweedFS and Kafka need their pod stopped: a running one is refused unless --stop, which stops the pod and starts it again afterwards). Restore is manual: podman volume import NAME FILE. These volumes are NOT covered by snapper or borg. Rootless only, no privilege prompt. Storage: with no storage.conf the volumes land in ~/.local/share/containers/storage; to move them put graphroot in $HOME/.config/containers/storage.conf (a documented step, not automated).
+EOF2
+                exit 0
+                ;;
+            *) echo "Unknown option: $1" >&2; echo "$setup_usage" >&2; exit 2 ;;
+        esac
+        shift
+    done
+    refuse_root
+    need_podman
+    graphroot() { podman info --format '{{.Store.GraphRoot}}' 2> /dev/null; }
+    warn_graphroot() {
+        local g; g=$(graphroot)
+        if [ -n "$g" ] && case "$g" in "$HOME"/*) true ;; *) false ;; esac; then
+            echo "Note: Podman stores volumes under $g (inside your home): the datastore data lives there, and neither snapper nor borg covers it."
+            echo "      To move it, set graphroot in \$HOME/.config/containers/storage.conf (see the Podman storage.conf documentation) before creating data."
+        fi
+    }
+
+    if [ "$action" = status ]; then
+        echo "Shipped pins and overrides:"
+        for s in $DS_SERVICES; do
+            o=$(ds_override_image "$s")
+            sh=$(ds_shipped_image "$s")
+            printf '  %-11s shipped %s\n' "$s" "${sh:-not installed (run: ${DS_CMD} install)}"
+            if [ -n "$sh" ] && [ "$sh" != "$(ds_bundle_image "$s")" ]; then printf '  %-11s bundle  %s (differs: run %s install to update the units)\n' "" "$(ds_bundle_image "$s")" "${DS_CMD}"; fi
+            if [ -n "$o" ]; then printf '  %-11s override %s (%s)\n' "" "$o" "$(ds_dropin "$s")"; fi
+            printf '  %-11s running %s\n' "" "$(podman inspect "$(ds_container "$s")" --format '{{.ImageName}}' 2> /dev/null || echo not-created)"
+        done
+        pgm=$(ds_pg_data_major)
+        echo "PostgreSQL data major: ${pgm:-none (no cluster yet)}; image major: $(ds_image_major "$(ds_effective_image postgresql)")"
+        echo "Storage (graphroot): $(graphroot)"
+        for v in $DS_VOLUMES; do
+            if podman volume exists "$v" 2> /dev/null; then
+                mp=$(podman volume inspect "$v" --format '{{.Mountpoint}}' 2> /dev/null)
+                printf '  volume %-16s %s\n' "$v" "$(podman unshare du -sh "$mp" 2> /dev/null | cut -f1)"
+            else
+                printf '  volume %-16s not created yet\n' "$v"
+            fi
+        done
+        miss=$(ds_missing_secrets | tr '\n' ' ')
+        echo "Missing secrets: ${miss:-none}"
+        warn_graphroot
+        exit 0
+    fi
+
+    if [ "$action" = pin ]; then
+        svc=${pin%%=*}
+        tag=${pin#*=}
+        if [ "$svc" = "$pin" ] || ! ds_known_service "$svc"; then echo "--pin needs SERVICE=TAG with SERVICE one of: ${DS_SERVICES}" >&2; exit 2; fi
+        if ! [[ "$tag" =~ ^[0-9]+(\.[0-9]+)*(-[a-z0-9.]+)?$ ]]; then echo "'$tag' is not an exact version tag (no latest, no floating tag)." >&2; exit 2; fi
+        shipped=$(ds_shipped_image "$svc")
+        if [ -z "$shipped" ]; then echo "No installed Quadlet for $svc in $DS_USER_DIR. Run: ${DS_CMD} install" >&2; exit 1; fi
+        if [ "${tag%%.*}" != "$(ds_image_major "$shipped")" ]; then
+            echo "Refused: $tag is not in major $(ds_image_major "$shipped") (shipped $(ds_image_tag "$shipped")). A major version change needs a dump and restore: do it by hand." >&2
+            exit 1
+        fi
+        f=$(ds_dropin "$svc")
+        want="$(ds_image_path "$shipped"):$tag"
+        echo "Pins $svc to $want (drop-in $f; no digest: a tag can move, the shipped pin cannot). Undo: ${DS_SETUP} --unpin $svc"
+        if [ "$mode" = no ]; then echo "Plan only."; exit 0; fi
+        if [ -f "$f" ] && [ "$(sed -n 's/^Image=//p' "$f" | tail -n1)" = "$want" ]; then echo "Already done."; exit 0; fi
+        mkdir -p "$(dirname "$f")" && printf '[Container]\nImage=%s\n' "$want" > "$f" || { echo "Failed to write $f" >&2; exit 1; }
+        systemctl --user daemon-reload || echo "Run: systemctl --user daemon-reload"
+        echo "Written. Running services keep their image until restarted (${DS_CMD} stop, then start). Pull it first: ${DS_SETUP} --update"
+        exit 0
+    fi
+    if [ "$action" = unpin ]; then
+        if ! ds_known_service "$unpin"; then echo "--unpin needs one of: ${DS_SERVICES}" >&2; exit 2; fi
+        f=$(ds_dropin "$unpin")
+        if [ ! -f "$f" ]; then echo "No override for $unpin: already done."; exit 0; fi
+        echo "Removes $f (back to the shipped pin). Undo: ${DS_SETUP} --pin $unpin=<tag>"
+        if [ "$mode" = no ]; then echo "Plan only."; exit 0; fi
+        rm -f -- "${f:?}"
+        rmdir "$(dirname "$f")" 2> /dev/null
+        systemctl --user daemon-reload || echo "Run: systemctl --user daemon-reload"
+        exit 0
+    fi
+
+    if [ "$action" = update ]; then
+        need_installed
+        echo "The images these pins resolve to (shipped pin, or your override):"
+        for s in $DS_SERVICES; do echo "  $s: $(ds_effective_image "$s")"; done
+        echo "Back up first: ${DS_SETUP} --backup DIR. A pull changes nothing that runs; services keep their image until you restart them."
+        if [ "$mode" = no ]; then echo "Plan only."; exit 0; fi
+        if [ "$mode" != yes ] && ! ds_confirm "Pull these images now?" n; then echo "Nothing pulled."; exit 0; fi
+        rc=0
+        for s in $DS_SERVICES; do
+            img=$(ds_effective_image "$s")
+            echo "podman pull $img"
+            podman pull "$img" > /dev/null || { echo "Failed: podman pull $img" >&2; rc=1; }
+        done
+        for s in $DS_SERVICES; do
+            if [ "$(systemctl --user is-active "$(ds_pod_unit "$s")" 2> /dev/null)" = active ]; then echo "Note: $(ds_pod_unit "$s") is running and was NOT restarted; restart it yourself: ${DS_CMD} stop && ${DS_CMD} start"; break; fi
+        done
+        exit "$rc"
+    fi
+
+    if [ "$action" = backup ]; then
+        stamp=$(date +%Y%m%d-%H%M%S)
+        pods_running=$(pods_active)
+        pg_running=0
+        case " $pods_running " in *" datastore-pod.service "*) pg_running=1 ;; esac
+        plan=()
+        for v in $DS_VOLUMES; do
+            podman volume exists "$v" 2> /dev/null || continue
+            if [ "$v" = postgresql-data ] && [ "$pg_running" = 1 ]; then plan+=("postgresql-data: pg_dumpall (online, consistent) -> $backup_dir/postgresql-$stamp.sql (a name that exists is never overwritten: -2, -3 ...)"); continue; fi
+            plan+=("$v: podman volume export -> $backup_dir/$v-$stamp.tar")
+        done
+        if [ "${#plan[@]}" -eq 0 ]; then echo "No datastore volumes exist yet: nothing to back up."; exit 0; fi
+        echo "Backup plan:"
+        printf '  %s\n' "${plan[@]}"
+        need_stop=""
+        for p in $pods_running; do
+            if [ "$p" = datastore-pod.service ]; then
+                # the Valkey and SeaweedFS volumes are only consistent while the pod is stopped; PostgreSQL goes through pg_dumpall
+                if podman volume exists valkey-data 2> /dev/null || podman volume exists seaweed-data 2> /dev/null; then need_stop="$need_stop $p"; fi
+            else
+                need_stop="$need_stop $p"
+            fi
+        done
+        if [ -n "$need_stop" ] && [ "$stop_ok" != 1 ]; then
+            echo "Refused:${need_stop} running. Valkey, SeaweedFS and Kafka volumes are only consistent while their pod is stopped: stop it (${DS_CMD} stop) or pass --stop (the pod is stopped and started again afterwards)." >&2
+            exit 1
+        fi
+        echo "These volumes are NOT covered by snapper or borg; keep the files somewhere safe. Restore by hand: podman volume import NAME FILE (into a new volume), or psql < the .sql file. Nothing runs on a timer."
+        if [ "$mode" = no ]; then echo "Plan only."; exit 0; fi
+        mkdir -p "$backup_dir" || { echo "Cannot create $backup_dir" >&2; exit 1; }
+        umask 077
+        rc=0
+        stopped=""
+        cur_part=""
+        # A name that exists (a file or a leftover .part) is never reused: -2, -3 ... is appended.
+        pick() { # base ext
+            local n="${backup_dir:?}/$1-${stamp:?}" i=1 c
+            c="$n.$2"
+            while [ -e "$c" ] || [ -e "$c.part" ]; do i=$((i + 1)); c="$n-$i.$2"; done
+            printf '%s' "$c"
+        }
+        # Pods this run stopped are started again on any exit, Ctrl-C and early failure included; only the .part file of an interrupted export is removed.
+        restore_stopped() {
+            [ -n "$cur_part" ] && rm -f -- "${cur_part:?}"
+            cur_part=""
+            local q
+            for q in $stopped; do echo "Starting $q again"; systemctl --user start "$q" || { echo "Failed to restart $q: ${DS_CMD} start" >&2; rc=1; }; done
+            stopped=""
+        }
+        trap 'restore_stopped' EXIT
+        trap 'exit 130' INT
+        trap 'exit 143' TERM
+        for p in $need_stop; do stopped="$stopped $p"; echo "Stopping $p"; systemctl --user stop "$p" || { echo "Failed to stop $p" >&2; exit 1; }; done
+        for v in $DS_VOLUMES; do
+            podman volume exists "$v" 2> /dev/null || continue
+            if [ "$v" = postgresql-data ] && [ "$pg_running" = 1 ] && [ "${need_stop#*datastore-pod}" = "$need_stop" ]; then
+                out=$(pick postgresql sql)
+                cur_part="$out.part"
+                if podman exec "$(ds_container postgresql)" pg_dumpall -U postgres > "$cur_part" && mv -- "$cur_part" "$out"; then echo "Wrote $out"; else echo "Failed: pg_dumpall (an earlier backup is untouched)" >&2; rm -f -- "${cur_part:?}"; rc=1; fi
+                cur_part=""
+                continue
+            fi
+            out=$(pick "${v:?}" tar)
+            cur_part="$out.part"
+            if podman volume export "$v" --output "$cur_part" && mv -- "$cur_part" "$out"; then echo "Wrote $out"; else echo "Failed: podman volume export $v (an earlier backup is untouched)" >&2; rm -f -- "${cur_part:?}"; rc=1; fi
+            cur_part=""
+        done
+        restore_stopped
+        trap - EXIT INT TERM
+        exit "$rc"
+    fi
+
+    # default: the missing secrets
+    echo "== secrets"
+    miss=$(ds_missing_secrets | tr '\n' ' ')
+    if [ -z "$miss" ]; then
+        echo "All secrets exist already: nothing to do."
+        warn_graphroot
+        exit 0
+    fi
+    # PostgreSQL ignores POSTGRES_PASSWORD when its data directory already exists, so a NEW random password (after `podman secret rm` or a lost
+    # secret) would not match the password the database already has: the services that use the secret could never log in again
+    pg_refused=0
+    case " $miss" in
+        *" postgresql-password "*)
+            if podman volume exists postgresql-data 2> /dev/null; then
+                pg_refused=1
+                miss=${miss/postgresql-password /}
+                echo "Not creating postgresql-password: the volume postgresql-data already exists, and PostgreSQL keeps the password it was created with (it ignores the new one)." >&2
+                echo "  A new random password would not match it. Either put the OLD password back:  printf '%s' '<old password>' | podman secret create postgresql-password -" >&2
+                echo "  or set a new one inside the database and store the same value:  podman exec -it pgsql psql -U postgres -c \"ALTER USER postgres PASSWORD '<new>'\"  (then podman secret create it with that value)," >&2
+                echo "  or, if the data may be thrown away: ${DS_SETUP} --backup DIR first, then podman volume rm postgresql-data." >&2
+            fi ;;
+    esac
+    if [ -z "${miss// /}" ]; then warn_graphroot; exit "$pg_refused"; fi
+    echo "Creates the missing podman secrets with random values (never printed): $miss"
+    echo "Undo: podman secret rm $miss"
+    if [ "$mode" = no ]; then echo "Plan only."; warn_graphroot; exit 0; fi
+    if [ "$mode" != yes ] && ! ds_confirm "Create them?" y; then echo "Nothing created."; exit 0; fi
+    rand() { head -c 96 /dev/urandom | base64 -w0 | tr -d '/+=' | cut -c1-"$1"; }
+    failed=0
+    for s in $miss; do
+        ok=0
+        case "$s" in
+            seaweedfs-s3-config)
+                ak=$(rand 20)
+                sk=$(rand 40)
+                printf '{"identities":[{"name":"admin","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Admin","Read","Write","List","Tagging"]}]}\n' "$ak" "$sk" | podman secret create "$s" - > /dev/null && ok=1
+                ak=""
+                sk=""
+                ;;
+            *) rand 32 | podman secret create "$s" - > /dev/null && ok=1 ;;
+        esac
+        if [ "$ok" = 1 ]; then echo "Created $s"; else echo "Failed: podman secret create $s" >&2; failed=1; fi
+    done
+    warn_graphroot
+    [ "$pg_refused" = 0 ] || failed=1
+    echo "Next: ${DS_CMD} start"
+    exit "$failed"
+}
+
+# ------------------------------------------------------------------------------------------------------------------- main
+if [ "$#" -eq 0 ]; then echo "$usage" >&2; exit 2; fi
+verb=$1
+shift
+case "$verb" in
+    help | --help | -h)
+        ds_text << 'EOF2'
+The opt-in lakehouse datastore, rootless Podman Quadlets, stopped until you start them. `@CMD@ install` places the units in $HOME/.config/containers/systemd (`@CMD@ uninstall` removes them again; volumes and secrets are never touched), `@SETUP@` (or `@CMD@ setup`) creates the secrets and manages pins, updates and backups (see `@CMD@ setup --help`). `@CMD@ start [datastore|kafka|all]` (default: datastore = PostgreSQL, Valkey and SeaweedFS in one pod; kafka only when named or with all), `stop [datastore|kafka|all]`, `status` (pods, containers, loopback ports, the running image against the shipped pin), `logs SERVICE` (postgresql, valkey, seaweedfs, kafka; the last 200 lines of journalctl --user), `render DIR` (writes the rendered units into DIR, touches nothing else). Everything is `systemctl --user`: no privilege prompt. start first checks that the podman secrets exist (otherwise: run `@SETUP@` first) and, for PostgreSQL, that the data volume major matches the image; it never pulls or updates an image (that is `@SETUP@ --update`). Starting a running pod is a no-op. stop only stops the pod unit: it never removes a volume or resets Podman. Undo of start: `@CMD@ stop`. Ports (127.0.0.1 only): 5432 PostgreSQL, 6379 Valkey, 8333 S3, 9333 SeaweedFS master, 8889 filer, 9092 Kafka.
+EOF2
+        exit 0
+        ;;
+    render)
+        [ "$#" -ge 1 ] || { echo "Usage: ${DS_CMD} render DIR" >&2; exit 2; }
+        exec "${DS_ROOT}/lib/render.sh" "$1" "${DS_ROOT}" "$(ds_images_file)"
+        ;;
+    install) cmd_install "$@" ;;
+    uninstall) cmd_uninstall "$@" ;;
+    setup) cmd_setup "$@" ;;
+    start | stop | status | logs)
+        refuse_root
+        need_podman
+        cmd_run "$verb" "$@"
+        ;;
+    *) echo "Unknown command: $verb" >&2; echo "$usage" >&2; exit 2 ;;
+esac

@@ -58,7 +58,10 @@ sched=$(REPO_ROOT="${src}" "${src}/.github/scripts/plan-images.sh" schedule)
 while IFS=: read -r s dst; do
     [[ -f "${src}/${s}" && -n "${dst}" ]] || bad "DATA_FILES entry ${s}:${dst} is not a file"
 done < <(REPO_ROOT="${src}" "${images}" data-files datastore-images)
-[[ "$(REPO_ROOT="${src}" "${images}" data-files datastore-images | tr '\n' ' ')" == "datastore-images/images.txt:images.txt datastore-images/README.md:README " ]] && ok "DATA_FILES: images.txt and README" || bad "DATA_FILES wrong"
+# DATA_FILES covers images.txt, the README and every file of bin/, lib/ and quadlets/ (directory entries expand to their files)
+want=$(cd "${src}/datastore-images" && ls images.txt bin/* lib/* quadlets/* | sed 's|.*|datastore-images/&:&|' | LC_ALL=C sort)
+have=$(REPO_ROOT="${src}" "${images}" data-files datastore-images | grep -v 'README.md:README' | LC_ALL=C sort)
+[[ "${want}" == "${have}" ]] && grep -qx 'datastore-images/README.md:README' <(REPO_ROOT="${src}" "${images}" data-files datastore-images) && ok "DATA_FILES: images.txt, README, bin, lib and quadlets, file for file" || bad "DATA_FILES wrong"
 
 # planning on a copy of the repository: a change touching only datastore-images builds it and nothing else, and the reverse
 repo="${tmp}/repo"
@@ -82,6 +85,9 @@ names() { # <expected, sorted> <description> <path to touch>
 }
 names "datastore-images" "a change to images.txt builds datastore-images only" datastore-images/images.txt
 names "datastore-images" "a change to the validator builds datastore-images only" datastore-images/validate.sh
+names "datastore-images" "a change to the datastore command builds datastore-images only" datastore-images/bin/datastore
+names "datastore-images" "a change to a library builds datastore-images only" datastore-images/lib/datastore.sh
+names "datastore-images" "a change to a Quadlet template builds datastore-images only" datastore-images/quadlets/valkey.container
 names "dev-packages fedora-toolbox" "a change to dev.txt does not build datastore-images" dev-packages/dev.txt
 names "dev-packages dna-packages dna-toolbox fedora-gaming fedora-toolbox gaming-packages" "a change to the shared installer does not build datastore-images" package-installer/install.sh
 

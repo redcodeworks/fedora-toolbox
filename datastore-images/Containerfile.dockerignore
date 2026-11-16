@@ -1,3 +1,6 @@
 *
 !datastore-images/images.txt
 !datastore-images/README.md
+!datastore-images/bin
+!datastore-images/lib
+!datastore-images/quadlets
