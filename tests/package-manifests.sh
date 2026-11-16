@@ -55,7 +55,9 @@ names() { # <expected, sorted> <description> <path to touch>
     last=${new}
     [[ "${got}" == "${want}" ]] && ok "${d}" || bad "${d} (want '${want}', got '${got}')"
 }
-names "fedora-gaming gaming-packages" "a change to gaming.txt builds gaming-packages and fedora-gaming only" gaming-packages/gaming.txt
+names "fedora-gaming gaming-packages" "a change to fedora.txt builds gaming-packages and fedora-gaming only" gaming-packages/fedora.txt
+names "fedora-gaming gaming-packages" "a change to rpmfusion.txt builds gaming-packages and fedora-gaming only" gaming-packages/rpmfusion.txt
+names "fedora-gaming gaming-packages" "a change to copr.txt builds gaming-packages and fedora-gaming (the box does not install it, but the list is its image's own path)" gaming-packages/copr.txt
 names "dna-packages dna-toolbox" "a change to core.txt builds dna-packages and dna-toolbox only" dna-packages/core.txt
 names "dna-packages dna-toolbox" "a change to optional.txt builds dna-packages and dna-toolbox only" dna-packages/optional.txt
 names "dev-packages fedora-toolbox" "a change to dev.txt builds dev-packages and fedora-toolbox only" dev-packages/dev.txt
@@ -117,15 +119,19 @@ NO_CLEANUP=1 OPTIONAL=1 bash "${installer}" "${src}/dna-packages/optional.txt" >
 want="dnf5 -y install --setopt=strict=1 $(ref_entries "${src}/dna-packages/core.txt" | tr '\n' ' ' | sed 's/ $//')"
 while read -r p; do want+=$'\n'"dnf5 -y install ${p}"; done < <(ref_entries "${src}/dna-packages/optional.txt")
 [[ "$(cat "${STUB_LOG}")" == "${want}" ]] && ok "dna-toolbox: the dnf calls equal the old build.sh's ($(ref_entries "${src}/dna-packages/core.txt" | wc -l) core in one strict install, $(ref_entries "${src}/dna-packages/optional.txt" | wc -l) optional one by one)" || bad "dna-toolbox package set differs"
-# fedora-gaming
+# fedora-gaming: fedora.txt, then rpmfusion.txt, each its own strict call; copr.txt is not installed
 bs="${src}/fedora-gaming/build_files/build.sh"
-grep -q '^NO_CLEANUP=1 bash /ctx/gaming-packages/install.sh "\$list"$' "${bs}" && grep -q '^list=/ctx/gaming-packages/gaming.txt$' "${bs}" && ok "fedora-gaming build.sh installs gaming.txt through the installer" || bad "fedora-gaming build.sh invocation"
+grep -q '^NO_CLEANUP=1 bash /ctx/gaming-packages/install.sh /ctx/gaming-packages/fedora.txt$' "${bs}" && grep -q '^NO_CLEANUP=1 bash /ctx/gaming-packages/install.sh /ctx/gaming-packages/rpmfusion.txt$' "${bs}" && ok "fedora-gaming build.sh installs fedora.txt and rpmfusion.txt through the installer" || bad "fedora-gaming build.sh invocation"
+[[ "$(grep -n 'gaming-packages/fedora.txt$' "${bs}" | cut -d: -f1)" -lt "$(grep -n 'gaming-packages/rpmfusion.txt$' "${bs}" | cut -d: -f1)" ]] && ok "fedora-gaming build.sh: Fedora before RPM Fusion" || bad "fedora-gaming build.sh order"
+grep -v '^[[:space:]]*#' "${bs}" | grep -q 'copr' && bad "fedora-gaming build.sh must not install copr.txt" || ok "fedora-gaming build.sh does not install copr.txt"
 : > "${STUB_LOG}"
-NO_CLEANUP=1 bash "${installer}" "${src}/gaming-packages/gaming.txt" > /dev/null 2>&1
-want="dnf5 -y install --setopt=strict=1 $(ref_entries "${src}/gaming-packages/gaming.txt" | tr '\n' ' ' | sed 's/ $//')"
-[[ "$(cat "${STUB_LOG}")" == "${want}" ]] && ok "fedora-gaming: the dnf call equals the old build.sh's ($(ref_entries "${src}/gaming-packages/gaming.txt" | wc -l) entries, name.arch and groups unchanged)" || bad "fedora-gaming package set differs"
+NO_CLEANUP=1 bash "${installer}" "${src}/gaming-packages/fedora.txt" > /dev/null 2>&1
+NO_CLEANUP=1 bash "${installer}" "${src}/gaming-packages/rpmfusion.txt" > /dev/null 2>&1
+want="dnf5 -y install --setopt=strict=1 $(ref_entries "${src}/gaming-packages/fedora.txt" | tr '\n' ' ' | sed 's/ $//')"$'\n'"dnf5 -y install --setopt=strict=1 $(ref_entries "${src}/gaming-packages/rpmfusion.txt" | tr '\n' ' ' | sed 's/ $//')"
+[[ "$(cat "${STUB_LOG}")" == "${want}" ]] && ok "fedora-gaming: two strict dnf calls, Fedora then RPM Fusion ($(ref_entries "${src}/gaming-packages/fedora.txt" | wc -l) and $(ref_entries "${src}/gaming-packages/rpmfusion.txt" | wc -l) entries, name.arch unchanged)" || bad "fedora-gaming package set differs"
+[[ ! -e "${src}/gaming-packages/gaming.txt" ]] && ok "gaming.txt is gone (split by source class)" || bad "gaming.txt still exists"
 # the Containerfiles copy the shared files, not copies
-for pair in "dna-toolbox:dna-packages/core.txt dna-packages/optional.txt package-installer/install.sh /dna-packages/" "fedora-gaming:gaming-packages/gaming.txt package-installer/install.sh /gaming-packages/"; do
+for pair in "dna-toolbox:dna-packages/core.txt dna-packages/optional.txt package-installer/install.sh /dna-packages/" "fedora-gaming:gaming-packages/fedora.txt gaming-packages/rpmfusion.txt package-installer/install.sh /gaming-packages/"; do
     grep -qF "COPY ${pair#*:}" "${src}/${pair%%:*}/Containerfile" && ok "${pair%%:*}: the Containerfile copies the shared files" || bad "${pair%%:*}: Containerfile copy"
 done
 [[ ! -e "${src}/dna-toolbox/packages" && ! -e "${src}/fedora-gaming/packages" ]] && ok "no second copy of the lists inside the toolbox directories" || bad "a toolbox directory still has packages/"

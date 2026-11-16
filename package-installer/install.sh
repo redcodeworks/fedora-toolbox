@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Install a package list into the image that is being built. One installer for every package-manifest image
-# (dev-packages, dna-packages, gaming-packages); each image carries it as /install.sh next to its list(s).
+# (dev-packages, dna-packages, gaming-packages; COPR lists have install-copr.sh); each image carries it as /install.sh next to its list(s).
 #
 #   install.sh [LIST_FILE]        default: dev.txt next to this script, else the only *.txt next to it
 #                                 (an image with several lists, such as dna-packages, needs the list named)

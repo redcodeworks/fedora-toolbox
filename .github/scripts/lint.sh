@@ -45,6 +45,7 @@ for d in $(image_dirs); do
             done
             lists=()
         fi
+        [[ ! -f "${d}/copr.txt" || -x "package-installer/install-copr.sh" ]] || err "package-installer/install-copr.sh missing or not executable (${d}/copr.txt needs it)"
         [[ -n "$(image_data_files "${d}")" ]] || err "${d}/image.env: DATA_FILES missing (the build checks the image against the repository)"
         while IFS=: read -r srcpath _; do
             [[ -f "${srcpath}" ]] || err "${d}/image.env: DATA_FILES names ${srcpath}, which does not exist"
@@ -63,7 +64,11 @@ for d in $(image_dirs); do
         [[ -n "${entries}" ]] || err "${list}: no packages"
         bad=$(grep -nE '[[:space:]]' <<<"${entries}" || true)
         [[ -z "${bad}" ]] || err "${list}: more than one token per line: ${bad}"
-        if [[ "${kind}" == "list" ]]; then
+        if [[ "${kind}" == "list" && "$(basename "${list}")" == "copr.txt" ]]; then
+            # COPR list: owner/project:name-version-release (install-copr.sh enforces the same shape)
+            badsyntax=$(grep -vE '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+:[A-Za-z0-9_.+]+(-[A-Za-z0-9_.+]+)*-[0-9][A-Za-z0-9_.+~^]*-[0-9][A-Za-z0-9_.+~^]*$' <<<"${entries}" || true)
+            [[ -z "${badsyntax}" ]] || err "${list}: not owner/project:name-version-release: ${badsyntax}"
+        elif [[ "${kind}" == "list" ]]; then
             badsyntax=$(grep -vE '^(@[A-Za-z0-9._+-]+|[A-Za-z0-9._+-]+(\|[A-Za-z0-9._+-]+)*)$' <<<"${entries}" || true)
             [[ -z "${badsyntax}" ]] || err "${list}: not 'name', '@group' or 'a|b' alternatives: ${badsyntax}"
         fi
