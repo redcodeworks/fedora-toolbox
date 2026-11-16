@@ -188,7 +188,9 @@ echo "ok   dna-toolbox versions.env, java package and download pins"
 (
     tmp=$(mktemp -d); trap 'rm -rf "${tmp}"' EXIT
     cp -r "${here}/dna-toolbox/stack" "${tmp}/stack"
-    sed -i 's|^FROM docker.io/apache/superset:6.1.0@sha256:[0-9a-f]*|FROM docker.io/apache/superset:6.1.0|' "${tmp}/stack/build/superset/Containerfile"
+    # strip the digest from the first pinned FROM of the file under test, whatever image and tag it names today
+    grep -qE '^FROM [^ @]+@sha256:[0-9a-f]+' "${tmp}/stack/build/superset/Containerfile" || { echo "FAIL superset Containerfile has no digest-pinned FROM to strip" >&2; exit 1; }
+    sed -i -E '0,/^FROM [^ @]+@sha256:[0-9a-f]+/s/^(FROM [^ @]+)@sha256:[0-9a-f]+/\1/' "${tmp}/stack/build/superset/Containerfile"
     ! DNA_STACK_ROOT="${tmp}/stack" "${tmp}/stack/bin/dna-stack" check >/dev/null 2>&1 || { echo "FAIL check accepted an undigested base" >&2; exit 1; }
     cp "${here}/dna-toolbox/stack/build/superset/Containerfile" "${tmp}/stack/build/superset/Containerfile"
     echo 'ENV API_TOKEN=abc123' >> "${tmp}/stack/build/superset/Containerfile"
