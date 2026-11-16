@@ -19,7 +19,6 @@ def load(n):
 
 test, ton = load("test.yml")
 r(ton["push"]["branches-ignore"] == ["main", "testing"], "test.yml: pushes to every branch except main and testing")
-r(ton["pull_request"]["branches"] == ["testing"], "test.yml: pull requests into testing")
 r(set(test["jobs"]) == {"test", "secrets"} and test["jobs"]["test"]["name"] == "test" and test["jobs"]["secrets"]["name"] == "secrets", "test.yml: jobs and check names are test and secrets")
 text = (wf / "test.yml").read_text()
 r("podman build" not in text and "push-tags" not in text and "packages: write" not in text and "ghcr.io" not in text, "test.yml: no image build and no publishing")

@@ -1,15 +1,13 @@
 ---
 name: Test
 # The fast lane (GitLab Flow): quick checks and a secret scan, no image build, nothing published. It runs for every push to a
-# dev branch (checked before the pull request exists) and for pull requests into `testing`. The image build is build.yml
-# (pushes to `testing` and `main`, the weekly schedule and manual runs).
+# dev branch (checked before the pull request exists). No pull_request trigger: the push check run is reported on the
+# commit, so the pull request sees it and nothing runs twice. The image build is build.yml (pushes to `testing` and
+# `main`, the weekly schedule and manual runs).
 on:
   push:
     branches-ignore:
       - main
-      - testing
-  pull_request:
-    branches:
       - testing
   workflow_dispatch:
 
