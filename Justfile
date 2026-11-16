@@ -53,6 +53,7 @@ test:
     tests/new-image.sh
     tests/dna-stack.sh
     tests/dev-packages-install.sh
+    tests/install-copr.sh
     tests/dev-packages-workflow.sh
     tests/push-tags.sh
     tests/workflow-triggers.sh

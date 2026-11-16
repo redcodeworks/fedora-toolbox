@@ -1,0 +1,51 @@
+# Fedora's own repositories (fedora, updates). Installed by install.sh as ONE strict dnf5 call: a package
+# that cannot be installed fails the build. One entry per line: "name", "name.arch" or "@group";
+# blank lines and #-comments are ignored. Used by the fedora-gaming toolbox and by the gx host image.
+#
+# Every name resolved on Fedora 45 (repoquery, 2026-11-16); the toolbox base is Fedora 44, where the
+# same names exist (CI is the proof, the toolbox build installs this list).
+# Install this list BEFORE rpmfusion.txt: Steam's 32-bit dependencies, Mesa included, come from here.
+
+# --- Compositor, overlays, tuning ---
+gamescope
+mangohud
+mangohud.i686
+gamemode
+gamemode.i686
+vkBasalt
+
+# --- Mesa for 32-bit games: only Fedora ships i686 Mesa, so both architectures come from Fedora ---
+mesa-vulkan-drivers.x86_64
+mesa-vulkan-drivers.i686
+
+# --- Controllers, input and audio (Bazzite extras) ---
+# steam-devices: the udev rules for controllers (Fedora ships it; it is not an RPM Fusion package)
+steam-devices
+joystick-support
+input-remapper
+libFAudio
+libFAudio.i686
+
+# --- Capture hook libraries for OBS (vkcapture); the OBS plugin itself would pull in obs-studio ---
+obs-studio-plugin-vkcapture-hook-libs
+obs-studio-plugin-vkcapture-hook-libs.i686
+
+# --- Diagnostics ---
+vulkan-tools
+mesa-demos
+libva-utils
+
+# --- Proton and Wine helpers ---
+protontricks
+winetricks
+
+# --- Optional, off by default ---
+# wine
+# lutris
+# goverlay
+# obs-studio-plugin-vkcapture   (pulls in obs-studio)
+
+# --- Deliberately absent ---
+# umu-launcher: not in the Fedora 45 repositories on 2026-11-16.
+# lact, extest, game-devices-udev: not packaged in Fedora or RPM Fusion.
+# Decky Loader: out-of-tree installer, not wanted in the image.

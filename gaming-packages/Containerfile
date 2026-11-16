@@ -1,5 +1,5 @@
-# Published as ghcr.io/redcodeworks/gaming-packages: the package manifest of fedora-gaming and the shared
-# installer, nothing else. No base image, no shell, no packages. fedora-gaming builds from the same in-repo files.
+# Published as ghcr.io/redcodeworks/gaming-packages: the gaming package lists (Fedora, RPM Fusion,
+# COPR) and their installers, nothing else. No base image, no shell, no packages. fedora-gaming builds from the same in-repo files.
 # Build context: the repository root.
 FROM scratch
 
@@ -8,14 +8,14 @@ ARG IMAGE_VERSION=dev
 ARG IMAGE_REVISION=unknown
 ARG IMAGE_CREATED=unknown
 
-COPY gaming-packages/gaming.txt package-installer/install.sh /
+COPY gaming-packages/fedora.txt gaming-packages/rpmfusion.txt gaming-packages/copr.txt package-installer/install-copr.sh package-installer/install.sh /
 COPY gaming-packages/README.md /README
 
 LABEL maintainer="redcodeworks/fedora-toolbox" \
       org.opencontainers.image.authors="redcodeworks" \
       org.opencontainers.image.vendor="redcodeworks" \
       org.opencontainers.image.title="gaming-packages" \
-      org.opencontainers.image.description="Package manifest of fedora-gaming and its installer" \
+      org.opencontainers.image.description="Gaming package lists (Fedora, RPM Fusion, COPR) and installers shared by fedora-gaming and octarine-os-gx" \
       org.opencontainers.image.url="https://github.com/redcodeworks/fedora-toolbox" \
       org.opencontainers.image.documentation="https://github.com/redcodeworks/fedora-toolbox/blob/main/gaming-packages/README.md" \
       org.opencontainers.image.source="https://github.com/redcodeworks/fedora-toolbox" \

@@ -1,0 +1,7 @@
+# RPM Fusion nonfree (the repositories rpmfusion-nonfree and rpmfusion-nonfree-steam). Installed by
+# install.sh as ONE strict dnf5 call AFTER fedora.txt. The CONSUMER enables the RPM Fusion nonfree
+# repository before this call (fedora-gaming's base has it on; the gx host build enables it and
+# disables it again afterwards). One entry per line, as in fedora.txt.
+#
+# Resolved on Fedora 45 from rpmfusion-nonfree-steam (steam 1.0.0.87-2.fc45, repoquery 2026-11-16).
+steam

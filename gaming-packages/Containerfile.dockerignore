@@ -1,4 +1,7 @@
 *
-!gaming-packages/gaming.txt
+!gaming-packages/fedora.txt
+!gaming-packages/rpmfusion.txt
+!gaming-packages/copr.txt
 !gaming-packages/README.md
 !package-installer/install.sh
+!package-installer/install-copr.sh
