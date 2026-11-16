@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # dna-doctor: report whether this box is ready for GPU, Spark, Jupyter and the lakehouse clients.
 # Prints ok / warn / FAIL lines and changes nothing. Exit status 1 only with --strict and a FAIL.
-# shellcheck disable=SC2015  # ok, warn and fail always return 0, so A && B || C is an if-else here
 set -uo pipefail
 # shellcheck source=/dev/null
 source "${DNA_VERSIONS_FILE:-/usr/share/dna-toolbox/versions.env}"

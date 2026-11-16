@@ -745,7 +745,6 @@ cmd_superset_admin() {
     is_selected superset || die "superset is not set up"
     local pwfile="${STATE}/env/superset-admin.pw"
     if [[ ! -f "${pwfile}" ]]; then ( umask 077; rand > "${pwfile}" ); fi
-    # shellcheck disable=SC2016  # $DNA_ADMIN_PW must expand inside the container, not here
     host "${RT}" exec -e "DNA_ADMIN_PW=$(cat "${pwfile}")" dna-superset sh -c \
         'superset fab create-admin --username admin --firstname Admin --lastname User --email admin@localhost --password "$DNA_ADMIN_PW"'
     say "admin user created; the password is in ${pwfile} (mode 600)"
@@ -946,12 +945,10 @@ cmd_check() { # static checks, no host access and no container runtime needed
     for n in $(build_services); do
         grep -qh "^Image=localhost/dna-${n}:local$" "${tmp}"/q/dna-"${n}"*.container || fail "Quadlet files of ${n} must use Image=localhost/dna-${n}:local"
         grep -q "^DNA_IMAGE_${n^^}=localhost/dna-${n}:local$" "${tmp}/c/.env" || fail "compose .env: ${n} must use localhost/dna-${n}:local"
-        # shellcheck disable=SC2016  # ${DNA_BUILD_ is literal text in the compose file
         grep -q '^ *build: \${DNA_BUILD_'"${n^^}"'}$' "${tmp}/c/${n}.yml" || fail "compose file of ${n} has no build: context"
     done
     if grep -l '^AutoUpdate=' "${tmp}"/q/* 2>/dev/null | xargs -r grep -l 'Image=localhost/' >/dev/null; then fail "AutoUpdate is set on a local image"; fi
     if grep -h '^PublishPort=' "${tmp}"/q/* | grep -v '^PublishPort=127\.0\.0\.1:' >/dev/null; then fail "a Quadlet port is not bound to 127.0.0.1"; fi
-    # shellcheck disable=SC2016  # the ${DNA_PORT_ text is literal
     if awk '/^ *ports:/ {on=1; next} on && /^ *- / {print; next} {on=0}' "${tmp}"/c/*.yml | grep -v '"127\.0\.0\.1:\${DNA_PORT_' >/dev/null; then
         fail "a compose port is not bound to 127.0.0.1 with an offset variable"
     fi

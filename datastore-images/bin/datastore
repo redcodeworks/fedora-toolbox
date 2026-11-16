@@ -8,7 +8,6 @@
 # Needs only bash, coreutils, sed, awk, podman and systemctl (the user instance). DATASTORE_UJUST=1 makes the messages name the
 # `ujust datastore` and `ujust datastore-setup` recipes instead of this script.
 # The `A && B || C` chains below are deliberate: C is always an error exit. The unquoted for-lists are space-separated names.
-# shellcheck disable=SC2015,SC2086
 set -uo pipefail
 
 DS_ROOT=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)
