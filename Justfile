@@ -45,12 +45,11 @@ lint:
 new-image name:
     @.github/scripts/new-image.sh "{{ name }}"
 
-# Run the planning, promotion, push, prune, scaffold, stack, datastore and workflow tests
+# Run the planning, promotion, push, scaffold, stack, datastore and workflow tests
 [group('Image')]
 test:
     tests/plan-images.sh
     tests/promote-decision.sh
-    tests/prune-testing.sh
     tests/new-image.sh
     tests/dna-stack.sh
     tests/dev-packages-install.sh

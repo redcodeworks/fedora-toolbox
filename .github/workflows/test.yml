@@ -49,7 +49,7 @@ jobs:
       - name: Lint (scripts, image layouts, package lists)
         run: just lint
 
-      - name: Planning, promotion, push, prune, scaffold and stack tests
+      - name: Planning, promotion, push, scaffold and stack tests
         run: just test
 
   secrets:
