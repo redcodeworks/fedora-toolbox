@@ -45,7 +45,7 @@ lint:
 new-image name:
     @.github/scripts/new-image.sh "{{ name }}"
 
-# Run the planning, promotion, push, prune, scaffold, stack and workflow tests
+# Run the planning, promotion, push, prune, scaffold, stack, datastore and workflow tests
 [group('Image')]
 test:
     tests/plan-images.sh
@@ -59,6 +59,7 @@ test:
     tests/workflow-triggers.sh
     tests/package-manifests.sh
     tests/datastore-images.sh
+    tests/datastore-bundle.sh
 
 # Build the dna-stack contexts (Connect, Airflow, Superset) with podman to catch a broken Containerfile; needs network, takes minutes
 [group('Image')]

@@ -1,5 +1,7 @@
-# Published as ghcr.io/redcodeworks/datastore-images: the pinned container images of the lakehouse datastore,
-# nothing else. No base image, no shell, no packages. Build context: the repository root.
+# Published as ghcr.io/redcodeworks/datastore-images: the lakehouse datastore bundle (pinned container images, Quadlet
+# templates, the `datastore` command and its libraries), nothing else. No base image, no shell, no packages.
+# Build context: the repository root. The layout is the one bin/datastore expects: it finds images.txt, quadlets/ and
+# lib/ in the directory above bin/, in a checkout and in the extracted image alike.
 FROM scratch
 
 # Build values passed by CI (podman build --build-arg ...); no secrets
@@ -9,12 +11,15 @@ ARG IMAGE_CREATED=unknown
 
 COPY datastore-images/images.txt /
 COPY datastore-images/README.md /README
+COPY datastore-images/bin/ /bin/
+COPY datastore-images/lib/ /lib/
+COPY datastore-images/quadlets/ /quadlets/
 
 LABEL maintainer="redcodeworks/fedora-toolbox" \
       org.opencontainers.image.authors="redcodeworks" \
       org.opencontainers.image.vendor="redcodeworks" \
       org.opencontainers.image.title="datastore-images" \
-      org.opencontainers.image.description="Pinned container images of the lakehouse datastore" \
+      org.opencontainers.image.description="Lakehouse datastore bundle: pinned container images, Quadlet templates and the datastore command" \
       org.opencontainers.image.url="https://github.com/redcodeworks/fedora-toolbox" \
       org.opencontainers.image.documentation="https://github.com/redcodeworks/fedora-toolbox/blob/main/datastore-images/README.md" \
       org.opencontainers.image.source="https://github.com/redcodeworks/fedora-toolbox" \
