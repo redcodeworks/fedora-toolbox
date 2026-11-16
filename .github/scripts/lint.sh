@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Lint the repo: script syntax (and shellcheck if installed), the layout of every image directory,
+# Lint the repo: script syntax (and shellcheck at warning level, CI only unless installed), the layout of every image directory,
 # the package lists, unique image names, and the "toolbox images only" rule (no OS-image parts).
 # REPO_ROOT overrides the repository root (the scaffold test lints a temporary copy).
 set -euo pipefail
@@ -16,9 +16,10 @@ shopt -s nullglob
 scripts=(.github/scripts/*.sh tests/*.sh ./*/build_files/*.sh ./*/tests/*.sh ./package-installer/install.sh ./datastore-images/validate.sh ./datastore-images/check-bundle.sh ./datastore-images/lib/*.sh ./*/stack/bin/* ./*/bin/*)
 bash -n "${scripts[@]}" || fail=1
 if command -v shellcheck >/dev/null; then
-    shellcheck -x -P SCRIPTDIR "${scripts[@]}" || fail=1
+    # -S warning: only warnings and errors fail; info and style findings are not for the first CI run
+    shellcheck -S warning -x -P SCRIPTDIR "${scripts[@]}" || fail=1
 else
-    echo "shellcheck not installed, skipping"
+    echo "lint: WARNING: shellcheck is not installed here, so the shellcheck step did NOT run (CI runs it)" >&2
 fi
 
 names=()

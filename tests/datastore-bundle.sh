@@ -6,7 +6,7 @@
 # bundle from the repository tree and from a copy laid out like the extracted image. podman, systemctl and journalctl are fakes
 # on a PATH that holds only bash, coreutils, sed and awk; nothing real is created. Image references come from images.txt, never
 # from literals here. Needs: bash. Run: tests/datastore-bundle.sh
-# shellcheck disable=SC2012,SC2016,SC2034,SC2086,SC2154
+# shellcheck disable=SC2034,SC2154
 set -uo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
