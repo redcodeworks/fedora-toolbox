@@ -10,6 +10,14 @@ Ready-made containers for [distrobox](https://distrobox.it) (development, gaming
 | [`datastore-images`](datastore-images/) | The lakehouse datastore (PostgreSQL, Valkey, SeaweedFS, Kafka as rootless Podman services) as a small signed bundle with a `datastore` command to install, set up and run it (see its README); not a box yet |
 | [`datastore`](datastore/) | The lakehouse datastore as one box: PostgreSQL, Valkey, SeaweedFS and Kafka running side by side in a distrobox with its own systemd, for local development (see its README) |
 
+## Build status
+
+| Images | main | testing |
+|---:|---:|---:|
+| all | [![images, main](https://github.com/redcodeworks/octarine-images/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/redcodeworks/octarine-images/actions/workflows/build.yml?query=branch%3Amain) | [![images, testing](https://github.com/redcodeworks/octarine-images/actions/workflows/build.yml/badge.svg?branch=testing)](https://github.com/redcodeworks/octarine-images/actions/workflows/build.yml?query=branch%3Atesting) |
+
+All the boxes (`fedora-toolbox`, `fedora-gaming`, `dna-toolbox`, `datastore-images` and `datastore`) are built by one workflow, so each badge covers all of them together: it turns red when any one fails to build or sign. The quick checks on a work branch are not shown here, since they only run before a change reaches `testing`.
+
 ## Requirements
 
 - [distrobox](https://distrobox.it) with podman (or docker)
