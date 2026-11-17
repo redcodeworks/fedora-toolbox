@@ -5,7 +5,7 @@
 set -euo pipefail
 
 # (a) Drop Terra. The base keeps Terra's Mesa for x86_64 only and hides Fedora's Mesa with an
-# `exclude=mesa-*` override on the fedora repos; Steam needs 32-bit Mesa, which only Fedora ships.
+# `exclude=mesa-*` override on the fedora repos; Steam needs 32-bit Mesa, which Fedora ships.
 rm -f /etc/yum.repos.d/terra*.repo
 rpm -qa 'terra*' | xargs -r rpm -e --nodeps
 rm -f /etc/dnf/repos.override.d/99-config_manager.repo

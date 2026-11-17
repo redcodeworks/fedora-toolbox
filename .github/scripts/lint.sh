@@ -72,6 +72,12 @@ for d in $(image_dirs); do
             badsyntax=$(grep -vE '^(@[A-Za-z0-9._+-]+|[A-Za-z0-9._+-]+(\|[A-Za-z0-9._+-]+)*)$' <<<"${entries}" || true)
             [[ -z "${badsyntax}" ]] || err "${list}: not 'name', '@group' or 'a|b' alternatives: ${badsyntax}"
         fi
+        # an `.i686` entry needs its `.x86_64` sibling named explicitly (a bare name next to name.i686 installs only the i686 package on a host)
+        if [[ "${kind}" == "list" ]]; then
+            while read -r e; do
+                grep -qxF "${e%.i686}.x86_64" <<<"${entries}" || err "${list}: ${e} needs ${e%.i686}.x86_64 listed explicitly"
+            done < <(grep -E '\.i686$' <<<"${entries}" || true)
+        fi
         dups=$(sort <<<"${entries}" | uniq -d)
         [[ -z "${dups}" ]] || err "${list}: duplicates: ${dups}"
     done

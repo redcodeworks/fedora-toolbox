@@ -129,6 +129,10 @@ NO_CLEANUP=1 bash "${installer}" "${src}/gaming-packages/fedora.txt" > /dev/null
 NO_CLEANUP=1 bash "${installer}" "${src}/gaming-packages/rpmfusion.txt" > /dev/null 2>&1
 want="dnf5 -y install --setopt=strict=1 $(ref_entries "${src}/gaming-packages/fedora.txt" | tr '\n' ' ' | sed 's/ $//')"$'\n'"dnf5 -y install --setopt=strict=1 $(ref_entries "${src}/gaming-packages/rpmfusion.txt" | tr '\n' ' ' | sed 's/ $//')"
 [[ "$(cat "${STUB_LOG}")" == "${want}" ]] && ok "fedora-gaming: two strict dnf calls, Fedora then RPM Fusion ($(ref_entries "${src}/gaming-packages/fedora.txt" | wc -l) and $(ref_entries "${src}/gaming-packages/rpmfusion.txt" | wc -l) entries, name.arch unchanged)" || bad "fedora-gaming package set differs"
+# every .i686 entry of the shipped lists has its explicit .x86_64 sibling, and the lint rule catches a missing one
+unpaired=$(for e in $(ref_entries "${src}/gaming-packages/fedora.txt" | grep '\.i686$'); do ref_entries "${src}/gaming-packages/fedora.txt" | grep -qxF "${e%.i686}.x86_64" || echo "${e}"; done)
+[[ -z "${unpaired}" ]] && ok "fedora.txt: every .i686 entry has an explicit .x86_64 entry" || bad "fedora.txt: unpaired .i686: ${unpaired}"
+grep -qF '.x86_64 listed explicitly' "${src}/.github/scripts/lint.sh" && ok "lint.sh has the .i686 pairing rule" || bad "lint.sh lacks the .i686 pairing rule"
 [[ ! -e "${src}/gaming-packages/gaming.txt" ]] && ok "gaming.txt is gone (split by source class)" || bad "gaming.txt still exists"
 # the Containerfiles copy the shared files, not copies
 for pair in "dna-toolbox:dna-packages/core.txt dna-packages/optional.txt package-installer/install.sh /dna-packages/" "fedora-gaming:gaming-packages/fedora.txt gaming-packages/rpmfusion.txt package-installer/install.sh /gaming-packages/"; do

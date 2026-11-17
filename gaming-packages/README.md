@@ -44,7 +44,11 @@ RUN --mount=type=bind,from=pkgs,source=/,target=/gaming-packages \
 
 `copr.txt`: one entry per line, `owner/project:name-version-release` with the exact version and release (the package name is case sensitive); an entry without a version and release is rejected.
 
-The lists assume Fedora's Mesa for both x86_64 and i686. The Terra cleanup `fedora-gaming` does in its own build is not part of this image.
+Every `name.i686` entry is paired with an explicit `name.x86_64` entry (a bare name next to an i686 one would install only the i686 package on a host).
+
+What the lists assume of the consuming image:
+- Mesa for both x86_64 and i686 is available. Fedora ships both, and so does negativo17 (`fedora-multimedia`), which the Universal Blue base enables. The Terra cleanup `fedora-gaming` does in its own build is not part of this image.
+- If the image also enables negativo17, that repository ships its own `steam` (a newer build than RPM Fusion's). To get RPM Fusion's `steam`, give the RPM Fusion nonfree repository `priority=10` for the `rpmfusion.txt` call (or exclude `steam` from negativo17).
 
 ## Verify the signature
 
