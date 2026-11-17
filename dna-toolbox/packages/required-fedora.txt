@@ -1,6 +1,6 @@
 # Critical packages for dna-toolbox, one dnf5 install; the build fails if any is missing.
 # One package or @group per line; blank lines and #-comments are ignored.
-# Anything nice to have but not essential goes in optional.txt (never here).
+# Anything nice to have but not essential goes in optional-fedora.txt (never here).
 
 # --- GPU toolkits are NOT in the image: `dna-gpu rocm` / `dna-gpu cuda` install them on demand with dnf inside
 # the box and export the CLI tools to the host (see CLAUDE.md). dnf5-plugins gives `dnf config-manager addrepo`

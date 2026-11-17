@@ -1,6 +1,6 @@
-# Optional packages for dna-toolbox. Installed one by one AFTER core.txt; a package that cannot be
-# installed only logs a warning and never fails the build, and smoke.sh never requires them.
-# Same format as core.txt.
+# Optional packages for dna-toolbox. Installed AFTER required-fedora.txt (one transaction, then one by one); a package that cannot be
+# installed is reported (OPTIONAL PACKAGE MISSING) and never fails the build, and smoke.sh never requires them.
+# Same format as required-fedora.txt.
 
 # --- ollama without ROCm: on Fedora 45 the `ollama` package requires ollama-base, ollama-rocm and ollama-vulkan,
 # and `llama-cpp` needs hipblas and the HIP runtime (checked with dnf repoquery --requires, 2026-11-09), so

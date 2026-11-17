@@ -22,7 +22,7 @@ extra=$(awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' /etc/passwd | tr '\n' ' ')
 [ -z "$extra" ] || fail "image defines regular users: $extra"
 echo "ok: no user-specific content in /home or /etc/passwd"
 
-# critical tools only (optional.txt packages are never required)
+# critical tools only (optional-fedora.txt packages are never required)
 run uv --version
 echo "ok: uv"
 # no GPU toolkit in the image (dna-gpu installs ROCm or CUDA on demand)

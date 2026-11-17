@@ -1,14 +1,13 @@
 #!/usr/bin/bash
-# Install dna-packages/core.txt (strict) and dna-packages/optional.txt (best effort) into the image through the shared
-# installer. Called from the Containerfile with the build context mounted at /ctx. Fails loudly on any unavailable
-# core package.
+# Install packages/required-fedora.txt (strict) and packages/optional-fedora.txt (best effort) into the image. Called from the Containerfile with the build
+# context mounted at /ctx and the installer of the pinned octarine-bins-dx image at /installer (only its install.sh is used, on this box's own lists).
+# Fails loudly on any unavailable required package.
 set -euo pipefail
 
-# Core tier: one strict dnf5 install (no --skip-unavailable, strict=1: a missing package or group aborts the build).
-# Optional tier: one package at a time, failures are logged and never fail the build. The installer strips comments
-# and blank lines; this script does its own cleanup at the end (NO_CLEANUP=1).
-NO_CLEANUP=1 bash /ctx/dna-packages/install.sh /ctx/dna-packages/core.txt
-NO_CLEANUP=1 OPTIONAL=1 bash /ctx/dna-packages/install.sh /ctx/dna-packages/optional.txt
+# Required: one strict dnf5 install (no --skip-unavailable, strict=1: a missing package or group aborts the build). Optional: one transaction, then
+# package by package; what is missing is printed as "OPTIONAL PACKAGE MISSING" and never fails the build, and smoke.sh never requires it.
+# This script does its own cleanup at the end (NO_CLEANUP=1).
+PACKAGES_DIR=/ctx/packages NO_CLEANUP=1 bash /installer/install.sh
 
 # Pinned versions, config files (conda-forge-only condarc, profile script, notebooks), the dna-*
 # commands. Files only; nothing runs at build time.

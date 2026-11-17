@@ -87,8 +87,8 @@ names "datastore-images" "a change to the validator builds datastore-images only
 names "datastore-images" "a change to the datastore command builds datastore-images only" datastore-images/bin/datastore
 names "datastore-images" "a change to a library builds datastore-images only" datastore-images/lib/datastore.sh
 names "datastore-images" "a change to a Quadlet template builds datastore-images only" datastore-images/quadlets/valkey.container
-names "dev-packages fedora-toolbox" "a change to dev.txt does not build datastore-images" dev-packages/dev.txt
-names "dev-packages dna-packages dna-toolbox fedora-gaming fedora-toolbox gaming-packages" "a change to the shared installer does not build datastore-images" package-installer/install.sh
+names "dna-toolbox" "a change to a dna-toolbox list does not build datastore-images" dna-toolbox/packages/required-fedora.txt
+names "fedora-toolbox" "a change to the fedora-toolbox pin builds only fedora-toolbox" fedora-toolbox/Containerfile
 
 # the Containerfile and the README
 cf="${src}/datastore-images/Containerfile"

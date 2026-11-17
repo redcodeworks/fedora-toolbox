@@ -1,8 +1,12 @@
-# Build context is mounted, not copied into the final image. The context is the repository root (BUILD_CONTEXT=. in
-# image.env): the list is shared with the published gaming-packages image, the installer with every manifest image.
+# The package lists and the installer come from the octarine-bins-gx image (built and signed by the octarine-bins repository), PINNED by digest.
+# CI verifies the digest with keys/octarine-bins.pub before the build; `just bump-bins gx` moves the pin (BINS_TAG is a label for humans).
+ARG BINS_TAG=20261117-5cf8fd9
+ARG BINS_DIGEST=sha256:b5109842bfd7b446b90acfe261637ade182ad2dbc11b2279200362585deb81a0
+FROM ghcr.io/redcodeworks/octarine-bins-gx@${BINS_DIGEST} AS bins
+
+# Build context is mounted, not copied into the final image (the context is this directory).
 FROM scratch AS ctx
-COPY fedora-gaming/build_files /build_files
-COPY gaming-packages/fedora.txt gaming-packages/negativo17.txt package-installer/install.sh /gaming-packages/
+COPY build_files /build_files
 
 # Base: Universal Blue's toolbox (github.com/ublue-os/toolboxes), Fedora 44, moving `latest` tag
 # only. Renovate pins the digest. Terra is dropped on purpose in build.sh (see CLAUDE.md).
@@ -14,19 +18,20 @@ ARG IMAGE_REVISION=unknown
 ARG IMAGE_CREATED=unknown
 
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    --mount=type=bind,from=bins,source=/packages,target=/packages \
     --mount=type=cache,dst=/var/cache \
     bash /ctx/build_files/build.sh
 
 # Labels are set after the build step so changing the build args does not invalidate the build cache.
 # They are explicit so nothing from the base is republished (no inherited maintainer email).
-LABEL maintainer="redcodeworks/fedora-toolbox" \
+LABEL maintainer="redcodeworks/octarine-images" \
       org.opencontainers.image.authors="redcodeworks" \
       org.opencontainers.image.vendor="redcodeworks" \
       org.opencontainers.image.title="fedora-gaming" \
       org.opencontainers.image.description="Gaming toolbox for distrobox: Steam, gamescope, MangoHud, GameMode on Fedora's Mesa (Terra dropped)" \
-      org.opencontainers.image.url="https://github.com/redcodeworks/fedora-toolbox" \
-      org.opencontainers.image.documentation="https://github.com/redcodeworks/fedora-toolbox" \
-      org.opencontainers.image.source="https://github.com/redcodeworks/fedora-toolbox" \
+      org.opencontainers.image.url="https://github.com/redcodeworks/octarine-images" \
+      org.opencontainers.image.documentation="https://github.com/redcodeworks/octarine-images" \
+      org.opencontainers.image.source="https://github.com/redcodeworks/octarine-images" \
       org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.base.name="ghcr.io/ublue-os/fedora-toolbox:latest" \
       org.opencontainers.image.version="${IMAGE_VERSION}" \
