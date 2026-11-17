@@ -58,6 +58,19 @@ The toolbox builds no longer carry package lists or an installer of their own fo
 - Build contexts are the image directories again (no `BUILD_CONTEXT=.`, no `EXTRA_PATHS`, no `Containerfile.dockerignore` for these three); a pin bump changes the image's own Containerfile, so only that image rebuilds.
 - Unverified until CI: the three builds on the Fedora 44 base with the Fedora 45 lists (a missing required package fails the build, an optional one warns), the negativo17 repository on the toolbox base, and that the bind of the bins image's `/packages` behaves in the CI podman like in the local one.
 
+## Build provenance attestation (second signal, 2026-11-17; the key signature stays the gate)
+
+Job `attest` ("Attest build provenance") of `build-image.yml`, one per image because the reusable workflow runs once per image: `needs: [build_push, sign]`, runs only when `sign` succeeded and `build_push` published (`publish == 'true'`), logs in to ghcr and runs `actions/attest` (pinned by SHA like octarine-bins) with `subject-name` = the image, `subject-digest` = the one digest `push-tags.sh` pushed, `push-to-registry: true`, `create-storage-record: false`. Permissions: contents read, packages write, id-token write, attestations write; no environment, key, checkout or cache. The `sign` job, which holds `SIGNING_SECRET`, has NO `id-token` and NO `attestations`. It lives in the reusable workflow because the digest is only an output of `build_push` there (a matrix caller job's outputs are last-write-wins); the cost is that the `images` job of `build.yml` must grant `id-token: write` and `attestations: write` (a called workflow's permissions are capped by the caller). A promote run attests nothing: it retags the digest testing built, so the attestation carries over. Not a required check: re-run with `gh run rerun --failed`. For a reusable workflow the signer identity is `build-image.yml` (not `build.yml`), the source ref is the caller's ref. A reader checks an image, pinned to its digest (`<image>` is fedora-toolbox, fedora-gaming, dna-toolbox, datastore or datastore-images):
+
+```
+gh attestation verify oci://ghcr.io/redcodeworks/<image>@<digest> \
+  --repo redcodeworks/octarine-images \
+  --signer-workflow redcodeworks/octarine-images/.github/workflows/build-image.yml \
+  --source-ref refs/heads/testing   # refs/heads/main for an image built on main (weekly schedule, fallback build)
+```
+
+Images published before 2026-11-17 have no attestation. Not testable locally (needs GitHub OIDC and Sigstore): the first real build on `testing` is the proof.
+
 ## datastore-images (2026-11-15): the lakehouse datastore bundle
 
 Kevin's decision (2026-11-15, "keep services as Quadlets"): the opt-in datastore (PostgreSQL, Valkey, SeaweedFS in the `datastore` pod, Kafka in the `kafka` pod, rootless Podman Quadlets) is an ON-DEMAND BUNDLE published from here, no longer baked into the octarine-os dx image. The signed image `ghcr.io/redcodeworks/datastore-images` (FROM scratch, same name, same publish, signing pipeline as before) carries the whole bundle; the dx image only keeps a thin recipe that pulls, verifies and extracts it (briefed to image-project by the hub). Nobody bumps the pins automatically.
