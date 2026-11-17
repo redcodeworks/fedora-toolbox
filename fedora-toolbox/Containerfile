@@ -1,10 +1,12 @@
-# Build context is mounted, not copied into the final image. The context is the repository root
-# (BUILD_CONTEXT=. in image.env): the package list (dev-packages/) and the installer (package-installer/) are
-# shared with the published dev-packages image. Built from these in-repo files, never from the
-# published image (no chicken and egg).
+# The package lists and the installer come from the octarine-bins-dx image (built and signed by the octarine-bins repository), PINNED by digest.
+# CI verifies the digest with keys/octarine-bins.pub before the build; `just bump-bins dx` moves the pin (BINS_TAG is a label for humans).
+ARG BINS_TAG=20261117-5d8004e
+ARG BINS_DIGEST=sha256:4ca94a16301ffb928aa8ee68191aaec49a47f5a60e59c1694a30a91003afa8ec
+FROM ghcr.io/redcodeworks/octarine-bins-dx@${BINS_DIGEST} AS bins
+
+# Build context is mounted, not copied into the final image (the context is this directory).
 FROM scratch AS ctx
-COPY fedora-toolbox/build_files /build_files
-COPY dev-packages/dev.txt package-installer/install.sh /dev-packages/
+COPY build_files /build_files
 
 # Base: Universal Blue's toolbox (github.com/ublue-os/toolboxes). Fedora 44, moving
 # `latest` tag only; Mesa comes from Terra. Renovate pins the digest.
@@ -17,20 +19,21 @@ ARG IMAGE_REVISION=unknown
 ARG IMAGE_CREATED=unknown
 
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    --mount=type=bind,from=bins,source=/packages,target=/packages \
     --mount=type=cache,dst=/var/cache \
     bash /ctx/build_files/build.sh
 
 # Labels are set after the build step so changing the build args does not invalidate the build cache.
 # They are explicit so nothing from the base is republished: maintainer, authors, url, documentation,
 # version, revision and created all override the inherited values (without any email address).
-LABEL maintainer="redcodeworks/fedora-toolbox" \
+LABEL maintainer="redcodeworks/octarine-images" \
       org.opencontainers.image.authors="redcodeworks" \
       org.opencontainers.image.vendor="redcodeworks" \
       org.opencontainers.image.title="fedora-toolbox" \
       org.opencontainers.image.description="Fedora development toolbox for distrobox with a shared home: build chain, -devel libraries, uv, rustup" \
-      org.opencontainers.image.url="https://github.com/redcodeworks/fedora-toolbox" \
-      org.opencontainers.image.documentation="https://github.com/redcodeworks/fedora-toolbox" \
-      org.opencontainers.image.source="https://github.com/redcodeworks/fedora-toolbox" \
+      org.opencontainers.image.url="https://github.com/redcodeworks/octarine-images" \
+      org.opencontainers.image.documentation="https://github.com/redcodeworks/octarine-images" \
+      org.opencontainers.image.source="https://github.com/redcodeworks/octarine-images" \
       org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.base.name="ghcr.io/ublue-os/fedora-toolbox:latest" \
       org.opencontainers.image.version="${IMAGE_VERSION}" \

@@ -28,7 +28,7 @@ FROM ghcr.io/ublue-os/fedora-toolbox:latest
 
 LABEL org.opencontainers.image.title="${name}" \\
       org.opencontainers.image.description="TODO: what this toolbox is for" \\
-      org.opencontainers.image.source="https://github.com/redcodeworks/fedora-toolbox"
+      org.opencontainers.image.source="https://github.com/redcodeworks/octarine-images"
 
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \\
     --mount=type=cache,dst=/var/cache \\

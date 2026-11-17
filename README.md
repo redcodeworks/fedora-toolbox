@@ -1,16 +1,13 @@
-# fedora-toolbox
+# octarine-images
 
-Ready-made development and gaming containers for [distrobox](https://distrobox.it), published as signed images on GitHub's container registry. Each one is a normal Fedora box with the tools already installed, so you skip the setup and keep your home folder.
+Ready-made containers for [distrobox](https://distrobox.it) (development, gaming, data work), published as signed images on GitHub's container registry. Each one is a normal Fedora box with the tools already installed, so you skip the setup and keep your home folder.
 
-| Image | What it is |
+| Box | What it is |
 |---|---|
-| [`fedora-toolbox`](fedora-toolbox/) | Development box: compilers and build tools, common `-devel` libraries, `uv`, `rustup`, `fish` (list: [`dev.txt`](dev-packages/dev.txt)) |
-| [`dev-packages`](dev-packages/) | Not a box: the developer package list above and its installer as a small signed image, so other Fedora-based images can install the same tools (see its README) |
-| [`fedora-gaming`](fedora-gaming/) | Gaming box: Steam, gamescope, MangoHud, GameMode, Steam from negativo17 (lists: [`fedora.txt`](gaming-packages/fedora.txt), [`negativo17.txt`](gaming-packages/negativo17.txt)) |
-| [`gaming-packages`](gaming-packages/) | Not a box: the gaming package lists (Fedora, negativo17, COPR) and their installers as a small signed image, for other Fedora-based images (see its README) |
-| [`dna-toolbox`](dna-toolbox/) | Data, analytics and AI box: Python and JVM data tooling, GPU toolkits (ROCm or CUDA) installed on demand with `dna-gpu`, plus `dna-stack` to start lakehouse server containers (Postgres, SeaweedFS, Lakekeeper, Trino, and more) on your host from the box; the heavier services (Kafka Connect, Airflow, Superset) are built on your machine the first time you start them; work in progress |
-| [`dna-packages`](dna-packages/) | Not a box: the package lists of `dna-toolbox` and their installer as a small signed image, for other Fedora-based images (see its README) |
-| [`datastore-images`](datastore-images/) | Not a box: the lakehouse datastore (PostgreSQL, Valkey, SeaweedFS, Kafka as rootless Podman services) as a small signed bundle with a `datastore` command to install, set up and run it (see its README) |
+| [`fedora-toolbox`](fedora-toolbox/) | Development box: compilers and build tools, common `-devel` libraries, `uv`, `rustup`, `fish`; the same developer tools as the dx edition of octarine-os |
+| [`fedora-gaming`](fedora-gaming/) | Gaming box: Steam, gamescope, MangoHud, GameMode and the Vulkan stack on Fedora's Mesa; the same games as the gx edition of octarine-os, minus Sunshine |
+| [`dna-toolbox`](dna-toolbox/) | Data, analytics and AI box: Python and JVM data tooling, GPU toolkits (ROCm or CUDA) installed on demand with `dna-gpu`, plus `dna-stack` to start lakehouse server containers (Postgres, SeaweedFS, Lakekeeper, Trino, and more) on your host from the box; work in progress |
+| [`datastore-images`](datastore-images/) | The lakehouse datastore (PostgreSQL, Valkey, SeaweedFS, Kafka as rootless Podman services) as a small signed bundle with a `datastore` command to install, set up and run it (see its README); not a box yet |
 
 ## Requirements
 
@@ -25,9 +22,7 @@ distrobox create --name fedora-toolbox --image ghcr.io/redcodeworks/fedora-toolb
 distrobox enter fedora-toolbox
 ```
 
-The images are built for x86_64 (amd64) hosts only. Use the `fedora-gaming` image the same way. `:latest` is the current release; `latest-<YYYYMMDD>-<short sha>` pins a date; `:testing` is the preview. The images contain nothing personal, so a box works with your real home. Language managers such as SDKMAN and nvm are not included: install them inside the box.
-
-The `fedora-toolbox` box now installs its tools from the same list that other images can reuse (the `dev-packages` entry above), and one package that was renamed between Fedora releases (`libgit2`) now works on both. Nothing changes in how you create or use the box.
+Use the `fedora-gaming` and `dna-toolbox` images the same way. `:latest` is the current release; `latest-<YYYYMMDD>-<short sha>` pins a date; `:testing` is the preview. The images contain nothing personal, so a box works with your real home. Language managers such as SDKMAN and nvm are not included: install them inside the box.
 
 To check a download:
 
