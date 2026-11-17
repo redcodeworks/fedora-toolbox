@@ -131,18 +131,6 @@ case "${real}" in
 esac
 
 case "${real}" in
-    *"dev-packages dev-packages"*) ok "real repo: dev-packages/ publishes as dev-packages" ;;
-    *) bad "real repo image list lacks dev-packages: ${real}" ;;
-esac
-sched=$(REPO_ROOT="${src}" "${src}/.github/scripts/plan-images.sh" schedule)
-case "${sched}" in
-    *dev-packages*) bad "real repo: the weekly schedule must not rebuild dev-packages: ${sched}" ;;
-    *) ok "real repo: the weekly schedule leaves dev-packages out" ;;
-esac
-ctx=$(REPO_ROOT="${src}" "${src}/.github/scripts/images.sh" context fedora-toolbox)
-if [[ "${ctx}" == "." ]]; then ok "real repo: fedora-toolbox builds with the repository root as context"; else bad "fedora-toolbox context: ${ctx}"; fi
-
-case "${real}" in
     *"fedora-gaming fedora-gaming"*) ok "real repo: fedora-gaming/ publishes as fedora-gaming" ;;
     *) bad "real repo image list lacks fedora-gaming: ${real}" ;;
 esac

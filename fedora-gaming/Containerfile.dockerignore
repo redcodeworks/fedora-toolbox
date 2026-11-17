@@ -1,6 +1,0 @@
-# Build context is the repository root: send only what the ctx stage copies
-*
-!fedora-gaming/build_files
-!gaming-packages/fedora.txt
-!gaming-packages/negativo17.txt
-!package-installer/install.sh

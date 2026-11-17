@@ -1,6 +1,6 @@
 #!/usr/bin/bash
 # Build the gaming toolbox: drop Terra so Fedora's Mesa is the only Mesa (x86_64 and i686 from the
-# same repo and version), then install gaming-packages/fedora.txt and negativo17.txt (in that order, one call each) through the shared installer. Called from the Containerfile with the
+# same repo and version), then install the lists of the octarine-bins-gx image through its installer. Called from the Containerfile with the
 # build context mounted at /ctx. Fails loudly on any unavailable package.
 set -euo pipefail
 
@@ -18,14 +18,8 @@ fi
 # repo with the same version when Steam's dependencies are installed below.
 dnf5 -y distro-sync --refresh 'mesa*'
 
-# (c) The package lists ("name", "name.arch" or "@group" per line, comments allowed) through the shared installer,
-# one strict dnf5 install per source class, Fedora first (it provides the 32-bit Mesa), then negativo17 (Steam, with its repository enabled for that call only).
-# A missing package aborts the build. copr.txt is for the gx host image and is not installed here.
-# This script does its own cleanup (NO_CLEANUP=1).
-NO_CLEANUP=1 bash /ctx/gaming-packages/install.sh /ctx/gaming-packages/fedora.txt
-# Steam comes from negativo17 (repo id fedora-multimedia). This base does not configure it (the Universal Blue OS
-# base does), so write the same repository definition, DISABLED, and enable it for the one call only. Packages from it
-# (Steam and the newer Mesa, codec and libva builds Steam pulls in) are listed in gaming-packages/README.md.
+# (c) Steam comes from negativo17 (repo id fedora-multimedia). This base does not configure it (the Universal Blue OS base does), so write the
+# same repository definition, DISABLED; the installer enables it for the negativo17 list only.
 cat > /etc/yum.repos.d/negativo17-fedora-multimedia.repo <<'REPO'
 [fedora-multimedia]
 name=negativo17 - Multimedia
@@ -39,7 +33,16 @@ metadata_expire=6h
 type=rpm-md
 repo_gpgcheck=0
 REPO
-ENABLE_REPO=fedora-multimedia NO_CLEANUP=1 bash /ctx/gaming-packages/install.sh /ctx/gaming-packages/negativo17.txt
+
+# (d) The package lists of the octarine-bins-gx image (mounted at /packages) through its installer: required-fedora.txt, then
+# required-negativo17.txt (Steam and the newer Mesa, codec and libva builds it pulls in), strict; then optional-fedora.txt, best effort. A missing
+# required package aborts the build. required-copr.txt (Sunshine) is for the gx OS image and is NOT installed here: the installer runs on a copy of the
+# lists without it. This script does its own cleanup (NO_CLEANUP=1).
+lists=$(mktemp -d)
+cp /packages/install.sh /packages/*.txt "${lists}/"
+rm -f "${lists}"/*-copr.txt
+PACKAGES_DIR="${lists}" NO_CLEANUP=1 bash "${lists}/install.sh"
+rm -rf "${lists}"
 
 # Record what Mesa the image ended up with (shows in the build log)
 rpm -qa --qf '%{NAME}.%{ARCH} %{VERSION}-%{RELEASE} %{VENDOR}\n' 'mesa-*' | sort

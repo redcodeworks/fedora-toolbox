@@ -14,7 +14,7 @@
 #   push, pull_request       build the images whose directory (or EXTRA_PATHS directories from
 #                            image.env) has changed files in <before>..<after>;
 #                            a change to a shared file (anything under .github/ except renovate and
-#                            dependabot config, the root Justfile, cosign.pub) builds all images;
+#                            dependabot config, the root Justfile, cosign.pub, keys/) builds all images;
 #                            an empty, all-zero or unknown <before> (new branch, force push) builds all
 # An empty list ({"include":[]}) means nothing to build; the workflow then skips the build jobs and
 # its aggregate checks still pass. No workflow-level `paths:` filter is used, because required status
@@ -45,7 +45,7 @@ json_for() { # dirs...
 is_shared() {
     case "$1" in
         .github/renovate.json5 | .github/dependabot.yml) return 1 ;;
-        .github/* | Justfile | cosign.pub) return 0 ;;
+        .github/* | Justfile | cosign.pub | keys/*) return 0 ;;
     esac
     return 1
 }
