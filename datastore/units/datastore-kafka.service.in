@@ -1,0 +1,18 @@
+[Unit]
+Description=Kafka broker, KRaft single node (datastore box)
+
+[Service]
+Type=simple
+User=@USER@
+# Kafka's own log files go to the user's data directory (the install under /opt/kafka is read-only for this user)
+Environment=LOG_DIR=@DATA@/logs/kafka
+ExecStart=/opt/kafka/bin/kafka-server-start.sh @CONF@/kafka.properties
+TimeoutStartSec=300
+TimeoutStopSec=90
+# A clean stop on SIGTERM exits with 143 (128 + 15); without this the unit is "failed" after every clean stop
+SuccessExitStatus=143
+Restart=on-failure
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

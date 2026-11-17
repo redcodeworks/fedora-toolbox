@@ -1,0 +1,18 @@
+[Unit]
+Description=SeaweedFS all-in-one: master, volume, filer and S3 gateway (datastore box)
+
+[Service]
+Type=simple
+User=@USER@
+# The flags the container had. -ip.bind=0.0.0.0: without it weed listens only on the interface it picks as primary, which is not
+# deterministic across restarts. The filer is on 8888 inside; the box publishes it on 8889 on the host.
+ExecStart=/usr/local/bin/weed server -dir=@DATA@/seaweed -ip.bind=0.0.0.0 -s3 -s3.port=8333 -s3.config=@CONF@/secrets/seaweedfs-s3-config -master.port=9333 -filer -filer.port=8888 -volume.max=0 -metricsPort=0
+# Same limit as before: the all-in-one server needs time to flush master, volume server, filer and gateway; a hard kill is the
+# likeliest cause of any later volume or .idx complaint.
+TimeoutStartSec=300
+TimeoutStopSec=60
+Restart=on-failure
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
