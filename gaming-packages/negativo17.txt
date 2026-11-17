@@ -1,0 +1,11 @@
+# Packages that come from negativo17's repository (repo id fedora-multimedia, https://negativo17.org). Installed by
+# install.sh as ONE strict dnf5 call AFTER fedora.txt, with that repository enabled for the call only:
+#   ENABLE_REPO=fedora-multimedia bash install.sh negativo17.txt
+# The CONSUMER must have the repository configured (the Universal Blue base ships it, disabled; fedora-gaming adds it
+# in its build.sh). One entry per line, as in fedora.txt.
+#
+# Resolved on Fedora 45 from fedora-multimedia (steam 1.0.0.87-4.fc45, dnf5 repoquery 2026-11-16).
+# Steam's own dependencies also come from negativo17 when it is enabled, because it is newer than Fedora for them:
+# Mesa (mesa-* x86_64 and i686, 26.2.7 against Fedora's 26.2.6), libva, and the codec libraries (libavcodec and
+# friends, x264/x265, openh264, ...); see README.md.
+steam

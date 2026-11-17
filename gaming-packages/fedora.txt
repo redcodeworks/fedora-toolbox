@@ -6,7 +6,8 @@
 # same names exist (CI is the proof, the toolbox build installs this list).
 # Every .i686 entry has its .x86_64 sibling named explicitly: a bare name next to a name.i686 made dnf5 on
 # a host install ONLY the i686 package (the lint and tests/package-manifests.sh enforce the pairing).
-# Install this list BEFORE rpmfusion.txt: Steam's 32-bit dependencies, Mesa included, come from here.
+# Install this list BEFORE negativo17.txt (Steam's 32-bit dependencies, Mesa included, then come from here
+# unless negativo17 has a newer build, which it does for Mesa; see README.md).
 
 # --- Compositor, overlays, tuning ---
 gamescope
@@ -23,7 +24,7 @@ mesa-vulkan-drivers.x86_64
 mesa-vulkan-drivers.i686
 
 # --- Controllers, input and audio (Bazzite extras) ---
-# steam-devices: the udev rules for controllers (Fedora ships it; it is not an RPM Fusion package)
+# steam-devices: the udev rules for controllers (Fedora ships it)
 steam-devices
 joystick-support
 input-remapper
@@ -51,5 +52,5 @@ winetricks
 
 # --- Deliberately absent ---
 # umu-launcher: not in the Fedora 45 repositories on 2026-11-16.
-# lact, extest, game-devices-udev: not packaged in Fedora or RPM Fusion.
+# lact, extest, game-devices-udev: not packaged in Fedora or negativo17.
 # Decky Loader: out-of-tree installer, not wanted in the image.
