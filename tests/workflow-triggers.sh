@@ -19,7 +19,7 @@ def load(n):
 
 test, ton = load("test.yml")
 r(ton["push"]["branches-ignore"] == ["main", "testing"], "test.yml: pushes to every branch except main and testing")
-r(set(test["jobs"]) == {"test", "secrets"} and test["jobs"]["test"]["name"] == "test" and test["jobs"]["secrets"]["name"] == "secrets", "test.yml: jobs and check names are test and secrets")
+r(set(test["jobs"]) == {"test", "secrets", "zizmor"} and all(test["jobs"][j]["name"] == j for j in test["jobs"]), "test.yml: jobs and check names are test, secrets and zizmor")
 text = (wf / "test.yml").read_text()
 r("podman build" not in text and "push-tags" not in text and "packages: write" not in text and "ghcr.io" not in text, "test.yml: no image build and no publishing")
 for cmd in ("just check", "just lint", "just test"):

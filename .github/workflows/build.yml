@@ -26,6 +26,8 @@ on:
         required: false
         default: ""
 
+permissions: {}
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.event_name != 'schedule' }}
@@ -45,6 +47,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0  # the plan diffs commit ranges
+          persist-credentials: false
 
       - name: Choose images
         id: plan
@@ -86,7 +89,8 @@ jobs:
       image_dir: ${{ matrix.dir }}
       mode: ${{ matrix.mode }}
       source: ${{ matrix.source }}
-    secrets: inherit
+    secrets:
+      SIGNING_SECRET: ${{ secrets.SIGNING_SECRET }}
 
   # The branch protection requires checks named "Build and push image" and "Sign and verify images".
   # Matrix and reusable workflow jobs get names of their own, so these two jobs keep the required
@@ -95,6 +99,7 @@ jobs:
   # pass when every planned image succeeded or when the plan was empty (nothing changed).
   result:
     name: Build and push image
+    permissions: {}
     needs: [plan, images]
     if: always()
     runs-on: ubuntu-26.04
@@ -110,6 +115,7 @@ jobs:
 
   signed:
     name: Sign and verify images
+    permissions: {}
     needs: [plan, images]
     if: always()
     runs-on: ubuntu-26.04

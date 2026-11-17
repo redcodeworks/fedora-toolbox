@@ -1,0 +1,14 @@
+# Narrow ignores for zizmor (https://docs.zizmor.sh/configuration/), one per finding that cannot or should not be fixed, each with its reason.
+# No rule is disabled wholesale; an ignore names a FILE, so a new finding of the same rule in another file fails the audit.
+rules:
+  # `uses: ./.github/...`: zizmor suggests the `$/...` self-repository syntax. The local path resolves to the SAME commit as the workflow,
+  # which is the property that matters; the `$` form is unverified here and a style finding (severity: help) is not worth risking every build.
+  self-repository:
+    ignore:
+      - build.yml
+      - build-image.yml
+      - test.yml
+  # The only write to $GITHUB_PATH: setup-tool adds its own pinned tool directory to PATH (no input reaches the value).
+  github-env:
+    ignore:
+      - action.yml
