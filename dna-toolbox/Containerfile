@@ -1,7 +1,7 @@
 # The installer (only the installer: the lists are in packages/) comes from the octarine-bins-dx image (built and signed by the octarine-bins repository), PINNED by digest.
 # CI verifies the digest with keys/octarine-bins.pub before the build; `just bump-bins dx` moves the pin (BINS_TAG is a label for humans).
-ARG BINS_TAG=20261117-5d8004e
-ARG BINS_DIGEST=sha256:4ca94a16301ffb928aa8ee68191aaec49a47f5a60e59c1694a30a91003afa8ec
+ARG BINS_TAG=20261117-5cf8fd9
+ARG BINS_DIGEST=sha256:f4f38f498cfbff1f60aafdbb50b5e9397f1691b4bda4fd80462add829fc2a322
 FROM ghcr.io/redcodeworks/octarine-bins-dx@${BINS_DIGEST} AS bins
 
 # Build context is mounted, not copied into the final image (the context is this directory).
