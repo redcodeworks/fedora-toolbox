@@ -1,0 +1,15 @@
+[Unit]
+Description=Valkey (datastore box)
+
+[Service]
+Type=notify
+User=@USER@
+# The config (bind, password, append-only file, data directory) is written by `datastore setup`
+ExecStart=/usr/bin/valkey-server @CONF@/valkey.conf --daemonize no --supervised systemd
+LimitNOFILE=10240
+TimeoutStopSec=60
+Restart=on-failure
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

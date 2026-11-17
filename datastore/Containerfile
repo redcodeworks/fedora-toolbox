@@ -1,0 +1,40 @@
+# Build context is mounted, not copied into the final image
+FROM scratch AS ctx
+COPY packages /packages
+COPY downloads.lock /
+COPY build_files /build_files
+
+# Plain Fedora, floating like the other boxes. A distrobox with its own systemd (`--init`) needs an image that has systemd:
+# this one carries it and the packages distrobox would otherwise install at first start.
+FROM registry.fedoraproject.org/fedora:45
+
+# Build values passed by CI (podman build --build-arg ...); no secrets
+ARG IMAGE_VERSION=dev
+ARG IMAGE_REVISION=unknown
+ARG IMAGE_CREATED=unknown
+
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    bash /ctx/build_files/build.sh
+
+# The command and the unit templates (rendered with the box user's name at setup time: nothing user-specific in the image)
+COPY bin/datastore /usr/bin/datastore
+COPY units/ /usr/share/datastore/units/
+
+# Labels come after the build step so changing the build args does not invalidate the build cache.
+LABEL maintainer="redcodeworks/octarine-images" \
+      org.opencontainers.image.authors="redcodeworks" \
+      org.opencontainers.image.vendor="redcodeworks" \
+      org.opencontainers.image.title="datastore" \
+      org.opencontainers.image.description="Datastore box for distrobox: PostgreSQL 17, Valkey, SeaweedFS and Kafka as units of the box's own systemd" \
+      org.opencontainers.image.url="https://github.com/redcodeworks/octarine-images" \
+      org.opencontainers.image.documentation="https://github.com/redcodeworks/octarine-images/blob/main/datastore/README.md" \
+      org.opencontainers.image.source="https://github.com/redcodeworks/octarine-images" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.base.name="registry.fedoraproject.org/fedora:45" \
+      org.opencontainers.image.version="${IMAGE_VERSION}" \
+      org.opencontainers.image.revision="${IMAGE_REVISION}" \
+      org.opencontainers.image.created="${IMAGE_CREATED}"
+
+# distrobox starts its own init; a plain `podman run` of the image needs /usr/lib/systemd/systemd as the command
+STOPSIGNAL SIGRTMIN+3
+CMD ["/usr/lib/systemd/systemd"]

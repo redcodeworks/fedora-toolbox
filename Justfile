@@ -27,12 +27,14 @@ build image tag=default_tag:
     read -r dir name < <(.github/scripts/images.sh resolve "{{ image }}")
     podman build --pull=newer -f "${dir}/Containerfile" -t "localhost/${name}:{{ tag }}" "$(.github/scripts/images.sh context "${dir}")"
 
-# Run <image>/tests/smoke.sh inside the locally built image
+# Run <image>/tests/smoke.sh inside the locally built image (or <image>/tests/smoke-host.sh on the host, when the image has one)
 [group('Image')]
 smoke image tag=default_tag:
     #!/usr/bin/env bash
     set -euo pipefail
     read -r dir name < <(.github/scripts/images.sh resolve "{{ image }}")
+    # an image that needs a real runtime (the datastore box runs its own systemd) brings tests/smoke-host.sh, which runs on the host
+    if [[ -x "${dir}/tests/smoke-host.sh" ]]; then exec "${dir}/tests/smoke-host.sh" "localhost/${name}:{{ tag }}"; fi
     podman run --rm -v "{{ justfile_directory() }}/${dir}/tests/smoke.sh:/smoke.sh:ro" "localhost/${name}:{{ tag }}" bash /smoke.sh
 
 # Lint scripts, image layouts and package lists, and enforce "toolbox images only"
@@ -57,6 +59,7 @@ test:
     tests/workflow-triggers.sh
     tests/datastore-images.sh
     tests/datastore-bundle.sh
+    tests/datastore-box.sh
 
 # Build the dna-stack contexts (Connect, Airflow, Superset) with podman to catch a broken Containerfile; needs network, takes minutes
 [group('Image')]

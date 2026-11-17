@@ -1,0 +1,5 @@
+# Pinned upstream downloads (no Fedora package exists), installed by build_files/build.sh. A wrong checksum fails the build.
+# Format: name|version|url|algorithm|checksum   (algorithm: sha256 or sha512, the digest the project or GitHub publishes)
+# Bump = edit version, url and checksum together on a branch; versions match the containers they replace (SeaweedFS 4.53, Kafka 4.3.2).
+seaweedfs|4.53|https://github.com/seaweedfs/seaweedfs/releases/download/4.53/linux_amd64.tar.gz|sha256|d1a7dec9f48d8b33895a0ea8951971defc2dc5312906dcc76fa5a5f74a6ee90d
+kafka|4.3.2|https://archive.apache.org/dist/kafka/4.3.2/kafka_2.13-4.3.2.tgz|sha512|c2063485f90312bba795052df3e49b8eea337adf97f1111b946c60771c7a2f088055d2ccc7221d72fe30bd6a3f7a58348f14e14240eaddfe60446ea1c033618b
