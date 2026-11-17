@@ -8,6 +8,7 @@ Ready-made containers for [distrobox](https://distrobox.it) (development, gaming
 | [`fedora-gaming`](fedora-gaming/) | Gaming box: Steam, gamescope, MangoHud, GameMode and the Vulkan stack on Fedora's Mesa; the same games as the gx edition of octarine-os, minus Sunshine |
 | [`dna-toolbox`](dna-toolbox/) | Data, analytics and AI box: Python and JVM data tooling, GPU toolkits (ROCm or CUDA) installed on demand with `dna-gpu`, plus `dna-stack` to start lakehouse server containers (Postgres, SeaweedFS, Lakekeeper, Trino, and more) on your host from the box; work in progress |
 | [`datastore-images`](datastore-images/) | The lakehouse datastore (PostgreSQL, Valkey, SeaweedFS, Kafka as rootless Podman services) as a small signed bundle with a `datastore` command to install, set up and run it (see its README); not a box yet |
+| [`datastore`](datastore/) | The lakehouse datastore as one box: PostgreSQL, Valkey, SeaweedFS and Kafka running side by side in a distrobox with its own systemd, for local development (see its README) |
 
 ## Requirements
 
@@ -22,7 +23,7 @@ distrobox create --name fedora-toolbox --image ghcr.io/redcodeworks/fedora-toolb
 distrobox enter fedora-toolbox
 ```
 
-Use the `fedora-gaming` and `dna-toolbox` images the same way. `:latest` is the current release; `latest-<YYYYMMDD>-<short sha>` pins a date; `:testing` is the preview. The images contain nothing personal, so a box works with your real home. Language managers such as SDKMAN and nvm are not included: install them inside the box.
+Use the `fedora-gaming` and `dna-toolbox` images the same way. The `datastore` box needs a few extra options and a setup step: see [`datastore/README.md`](datastore/README.md). `:latest` is the current release; `latest-<YYYYMMDD>-<short sha>` pins a date; `:testing` is the preview. The images contain nothing personal, so a box works with your real home. Language managers such as SDKMAN and nvm are not included: install them inside the box.
 
 To check a download:
 

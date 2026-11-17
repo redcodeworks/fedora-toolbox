@@ -1,0 +1,42 @@
+# One package per line, official Fedora packages only; any unavailable package fails the build.
+# Services. PostgreSQL 17: the major of the live data (a major change is a dump and restore) and what Lakekeeper, Superset and Airflow run on.
+postgresql17-server
+valkey
+# Kafka runs on Java 25 (Fedora 45 has no java-21)
+java-25-openjdk-headless
+# Locale for the data: the postgres container image used en_US.utf8
+glibc-langpack-en
+# Used by build.sh, the datastore command and the tests
+tar
+gzip
+curl
+openssl
+jq
+# What distrobox needs in an image with its own systemd (it installs missing ones at first start otherwise)
+systemd
+bash
+bc
+bzip2
+diffutils
+findutils
+gawk
+gnupg2
+hostname
+iproute
+less
+lsof
+ncurses
+passwd
+pinentry
+procps-ng
+shadow-utils
+sudo
+time
+tzdata
+util-linux
+vte-profile
+wget
+which
+xorg-x11-xauth
+zip
+unzip

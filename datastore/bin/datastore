@@ -1,0 +1,319 @@
+#!/usr/bin/env bash
+# datastore: set up and run PostgreSQL, Valkey, SeaweedFS and Kafka as units of the datastore box's own systemd.
+# Runs INSIDE the box as the box user (from the host: `distrobox enter datastore -- datastore <command>`).
+# Data lives in plain directories under the user's home, config and secrets under $HOME/.config/datastore.
+set -euo pipefail
+
+# Where the unit templates are: the image installs them under /usr/share/datastore; a checkout has them next to bin/
+if [[ -n "${DATASTORE_SHARE:-}" ]]; then
+    share="${DATASTORE_SHARE}"
+elif [[ -d /usr/share/datastore/units ]]; then
+    share=/usr/share/datastore
+else
+    share="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+fi
+data="${DATASTORE_DATA:-${XDG_DATA_HOME:-${HOME}/.local/share}/datastore}"
+conf="${DATASTORE_CONF:-${XDG_CONFIG_HOME:-${HOME}/.config}/datastore}"
+secrets="${conf}/secrets"
+unitdir="${DATASTORE_UNIT_DIR:-/etc/systemd/system}"
+
+services=(postgres valkey seaweedfs kafka)
+secret_names=(postgresql-password valkey-password seaweedfs-s3-config)
+declare -A port_of=([postgres]=5432 [valkey]=6379 [seaweedfs]=8333 [kafka]=9092)
+
+die() { echo "datastore: $*" >&2; exit 1; }
+
+usage() {
+    cat <<'EOF'
+datastore: PostgreSQL 17, Valkey, SeaweedFS and Kafka as units of this box's own systemd (local development).
+
+  datastore setup                       create the data directories, passwords and config, initialize PostgreSQL and
+                                        Kafka (once), install and enable the units; safe to run again, never overwrites
+  datastore start|stop|restart [NAME..] NAME: postgres valkey seaweedfs kafka, or datastore (the first three), all (default)
+  datastore enable|disable NAME..       start with the box or not (setup enables all four)
+  datastore status                      state, port and data size of each service
+  datastore logs NAME [journalctl args] e.g. datastore logs kafka -f
+  datastore psql [args]                 psql as the postgres superuser (password read from the secrets directory)
+  datastore valkey-cli [args]           valkey-cli with the password
+  datastore secrets list|show NAME|export [--replace]
+                                        the generated passwords and S3 keys; export creates the podman secrets
+                                        postgresql-password, valkey-password, seaweedfs-s3-config on the HOST
+  datastore backup DIR [--stop]         pg_dumpall file plus a tar of each of the Valkey, SeaweedFS and Kafka
+                                        directories (those need their service stopped: refused unless --stop)
+  datastore restore FILE                load a pg_dumpall file into the fresh PostgreSQL (see the README)
+  datastore render DIR                  write the rendered units to DIR (no systemd needed)
+  datastore --help
+
+Data: $HOME/.local/share/datastore/{postgres,valkey,seaweed,kafka}   Config and secrets: $HOME/.config/datastore
+EOF
+}
+
+systemd_running() { [[ -d /run/systemd/system ]]; }
+
+as_root() { if [[ "$(id -u)" -eq 0 ]]; then "$@"; else sudo "$@"; fi; }
+
+secret_file() { echo "${secrets}/$1"; }
+read_secret() { local f; f=$(secret_file "$1"); [[ -f "${f}" ]] || die "no ${f}: run 'datastore setup' first"; head -n1 "${f}"; }
+
+# Resolve a service argument list into unit names (default all)
+want_units() {
+    local a n out=()
+    if [[ $# -eq 0 ]]; then set -- all; fi
+    for a in "$@"; do
+        case "${a}" in
+            all) out+=("${services[@]}") ;;
+            datastore) out+=(postgres valkey seaweedfs) ;;
+            postgres | valkey | seaweedfs | kafka) out+=("${a}") ;;
+            *) die "unknown service '${a}' (postgres valkey seaweedfs kafka, datastore, all)" ;;
+        esac
+    done
+    for n in "${out[@]}"; do echo "datastore-${n}.service"; done | awk '!seen[$0]++'
+}
+
+render_units() { # dir
+    local dir=$1 user f out
+    user=$(id -un)
+    [[ -d "${share}/units" ]] || die "unit templates not found in ${share}/units"
+    mkdir -p "${dir}"
+    for f in "${share}"/units/*.service.in; do
+        out="${dir}/$(basename "${f}" .in)"
+        sed -e "s|@USER@|${user}|g" -e "s|@DATA@|${data}|g" -e "s|@CONF@|${conf}|g" "${f}" >"${out}"
+        if grep -q '@[A-Z]*@' "${out}"; then die "placeholder left in ${out}"; fi
+    done
+}
+
+rand() { head -c 96 /dev/urandom | base64 -w0 | tr -d '/+=' | cut -c1-"$1"; }
+
+make_secrets() {
+    local n f ak sk
+    mkdir -p "${secrets}"
+    chmod 700 "${conf}" "${secrets}"
+    for n in "${secret_names[@]}"; do
+        f=$(secret_file "${n}")
+        [[ ! -e "${f}" ]] || continue
+        (
+            umask 077
+            case "${n}" in
+                seaweedfs-s3-config)
+                    ak=$(rand 20)
+                    sk=$(rand 40)
+                    printf '{"identities":[{"name":"admin","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Admin","Read","Write","List","Tagging"]}]}\n' "${ak}" "${sk}" >"${f}"
+                    ;;
+                *) rand 32 >"${f}" ;;
+            esac
+        )
+        echo "created ${f}"
+    done
+}
+
+setup_postgres() {
+    local d="${data}/postgres"
+    if [[ -f "${d}/PG_VERSION" ]]; then echo "postgres: data directory exists, left alone"; return; fi
+    [[ -z "$(ls -A "${d}")" ]] || die "${d} is not empty and has no PG_VERSION: refusing to initialize over it"
+    # en_US.UTF-8 is the locale of the postgres container image the data used to live in
+    initdb -D "${d}" -U postgres -E UTF8 --locale=en_US.UTF-8 \
+        --auth-local=scram-sha-256 --auth-host=scram-sha-256 --pwfile="$(secret_file postgresql-password)" >/dev/null
+    printf '\n# other containers on the lakehouse network (and the published loopback port)\nhost all all 0.0.0.0/0 scram-sha-256\n' >>"${d}/pg_hba.conf"
+    echo "postgres: initialized ${d}"
+}
+
+setup_valkey() {
+    (
+        umask 077
+        cat >"${conf}/valkey.conf" <<EOF
+# Written by 'datastore setup' (rewritten on every run; the password comes from the secrets directory)
+bind 0.0.0.0 -::*
+port 6379
+protected-mode yes
+requirepass "$(read_secret valkey-password)"
+appendonly yes
+dir ${data}/valkey
+EOF
+    )
+    echo "valkey: wrote ${conf}/valkey.conf"
+}
+
+setup_kafka() {
+    cat >"${conf}/kafka.properties" <<EOF
+# Written by 'datastore setup' (rewritten on every run): one node that is broker and controller (KRaft, no ZooKeeper)
+process.roles=broker,controller
+node.id=1
+controller.quorum.voters=1@localhost:9093
+listeners=PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+controller.listener.names=CONTROLLER
+listener.security.protocol.map=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+inter.broker.listener.name=PLAINTEXT
+# other containers reach the broker through the box's network alias, never localhost
+advertised.listeners=PLAINTEXT://kafka:9092
+offsets.topic.replication.factor=1
+transaction.state.log.replication.factor=1
+transaction.state.log.min.isr=1
+group.initial.rebalance.delay.ms=0
+auto.create.topics.enable=true
+log.dirs=${data}/kafka
+EOF
+    if [[ -f "${data}/kafka/meta.properties" ]]; then echo "kafka: data directory exists, left alone"; return; fi
+    LOG_DIR="${data}/logs/kafka" /opt/kafka/bin/kafka-storage.sh format -t "$(/opt/kafka/bin/kafka-storage.sh random-uuid)" -c "${conf}/kafka.properties" >/dev/null
+    echo "kafka: formatted ${data}/kafka"
+}
+
+cmd_setup() {
+    [[ "$(id -u)" -ne 0 ]] || die "run as the box user, not root (the services run as that user)"
+    systemd_running || die "this box has no running systemd: create it with 'distrobox create --init' (see the README)"
+    mkdir -p "${conf}" "${data}"/{postgres,valkey,seaweed,kafka,logs/kafka}
+    chmod 700 "${data}/postgres"
+    make_secrets
+    setup_postgres
+    setup_valkey
+    setup_kafka
+    local stage u units
+    stage=$(mktemp -d)
+    render_units "${stage}"
+    for u in "${stage}"/*.service; do as_root install -m 0644 "${u}" "${unitdir}/$(basename "${u}")"; done
+    as_root systemctl daemon-reload
+    mapfile -t units < <(want_units all)
+    as_root systemctl enable "${units[@]}" >/dev/null 2>&1
+    echo "units installed and enabled. Next: datastore start"
+    echo "Dependent containers need the host podman secrets: datastore secrets export"
+}
+
+cmd_ctl() { # start|stop|restart|enable|disable [names]
+    local verb=$1 u
+    shift
+    systemd_running || die "this box has no running systemd"
+    mapfile -t units < <(want_units "$@")
+    as_root systemctl "${verb}" "${units[@]}"
+    for u in "${units[@]}"; do
+        if [[ "${verb}" == start || "${verb}" == restart ]]; then
+            as_root systemctl is-active --quiet "${u}" || { echo "${u} is not active: datastore logs $(basename "${u#datastore-}" .service)"  >&2; return 1; }
+        fi
+    done
+}
+
+port_open() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
+
+cmd_status() {
+    local s u state enabled dir size
+    printf '%-10s %-10s %-9s %-6s %s\n' SERVICE STATE ENABLED PORT DATA
+    for s in "${services[@]}"; do
+        u="datastore-${s}.service"
+        state=$(as_root systemctl is-active "${u}" 2>/dev/null || true)
+        enabled=$(as_root systemctl is-enabled "${u}" 2>/dev/null || true)
+        case "${s}" in seaweedfs) dir=seaweed ;; postgres) dir=postgres ;; *) dir=${s} ;; esac
+        size=$(du -sh "${data}/${dir}" 2>/dev/null | cut -f1 || true)
+        printf '%-10s %-10s %-9s %-6s %s\n' "${s}" "${state:-unknown}" "${enabled:-unknown}" "$(port_open "${port_of[${s}]}" && echo "${port_of[${s}]}" || echo -)" "${size:--}"
+    done
+    echo "data: ${data}   config: ${conf}"
+}
+
+cmd_logs() {
+    local n=${1:?usage: datastore logs NAME [journalctl args]}
+    shift
+    mapfile -t u < <(want_units "${n}")
+    [[ "${#u[@]}" -eq 1 ]] || die "logs takes one service"
+    exec journalctl -u "${u[0]}" "$@"
+}
+
+cmd_psql() { PGPASSWORD=$(read_secret postgresql-password) exec psql -h /run/postgresql -U postgres "$@"; }
+cmd_valkey_cli() { local pw; pw=$(read_secret valkey-password); REDISCLI_AUTH="${pw}" VALKEYCLI_AUTH="${pw}" exec valkey-cli "$@"; }
+
+cmd_secrets() {
+    local sub=${1:-list} n replace=() ok=0
+    shift || true
+    case "${sub}" in
+        list)
+            for n in "${secret_names[@]}"; do
+                [[ -f "$(secret_file "${n}")" ]] && echo "${n}  $(secret_file "${n}")" || echo "${n}  (missing: run datastore setup)"
+            done
+            ;;
+        show)
+            n=${1:?usage: datastore secrets show NAME}
+            [[ " ${secret_names[*]} " == *" ${n} "* ]] || die "unknown secret '${n}' (${secret_names[*]})"
+            cat "$(secret_file "${n}")"
+            ;;
+        export)
+            [[ "${1:-}" != "--replace" ]] || replace=(--replace)
+            command -v distrobox-host-exec >/dev/null || die "distrobox-host-exec not found: run this inside the box"
+            for n in "${secret_names[@]}"; do
+                [[ -f "$(secret_file "${n}")" ]] || die "no secret ${n}: run datastore setup first"
+                if distrobox-host-exec podman secret create "${replace[@]}" "${n}" "$(secret_file "${n}")" >/dev/null; then
+                    echo "host podman secret ${n}: created"
+                else
+                    echo "host podman secret ${n}: not created (it exists? --replace overwrites it, which breaks containers that were set up with the old value)" >&2
+                    ok=1
+                fi
+            done
+            exit "${ok}"
+            ;;
+        *) die "usage: datastore secrets list|show NAME|export [--replace]" ;;
+    esac
+}
+
+cmd_backup() {
+    local dir=${1:?usage: datastore backup DIR [--stop]} stop=0 d name stamp running=() s u
+    [[ "${2:-}" != "--stop" ]] || stop=1
+    stamp=$(date +%Y%m%d-%H%M%S)
+    mkdir -p "${dir}"
+    chmod 700 "${dir}"
+    as_root systemctl is-active --quiet datastore-postgres.service || die "PostgreSQL is not running: datastore start postgres"
+    (umask 077; PGPASSWORD=$(read_secret postgresql-password) pg_dumpall -h /run/postgresql -U postgres >"${dir}/postgres-${stamp}.sql")
+    echo "wrote ${dir}/postgres-${stamp}.sql (pg_dumpall: roles with password hashes, all databases; replication slots are not in it)"
+    for s in valkey seaweedfs kafka; do
+        u="datastore-${s}.service"
+        if as_root systemctl is-active --quiet "${u}"; then
+            [[ "${stop}" -eq 1 ]] || die "${s} is running: a directory copy of a live service is not consistent. Stop it, or run again with --stop (the services are started again afterwards)"
+            running+=("${s}")
+        fi
+    done
+    for s in "${running[@]}"; do as_root systemctl stop "datastore-${s}.service"; done
+    for name in valkey seaweed kafka; do
+        d="${data}/${name}"
+        [[ -d "${d}" ]] || continue
+        (umask 077; tar -C "${data}" -cf "${dir}/${name}-${stamp}.tar" "${name}")
+        echo "wrote ${dir}/${name}-${stamp}.tar"
+    done
+    for s in "${running[@]}"; do as_root systemctl start "datastore-${s}.service"; done
+}
+
+cmd_restore() {
+    local file=${1:?usage: datastore restore FILE (a pg_dumpall file)} force=0 others log pw
+    [[ "${2:-}" != "--force" ]] || force=1
+    [[ -f "${file}" ]] || die "no such file: ${file}"
+    as_root systemctl is-active --quiet datastore-postgres.service || die "PostgreSQL is not running: datastore start postgres"
+    pw=$(read_secret postgresql-password)
+    export PGPASSWORD="${pw}"
+    others=$(psql -h /run/postgresql -U postgres -d postgres -Atc "select count(*) from pg_database where datname not in ('postgres','template0','template1')")
+    if [[ "${others}" != 0 && "${force}" -eq 0 ]]; then die "this PostgreSQL already has ${others} database(s); restore is for a fresh one (--force to load anyway)"; fi
+    log=$(mktemp)
+    # a dump of a whole cluster also creates the postgres role, which exists: that error is expected and not fatal.
+    # The dump carries the OLD password hash of the postgres role: that one line is left out so this box's password stays true.
+    sed '/^ALTER ROLE postgres WITH /d' "${file}" | psql -X -q -h /run/postgresql -U postgres -d postgres >/dev/null 2>"${log}" || true
+    echo "restored ${file}; the postgres password is this box's (datastore secrets show postgresql-password); other roles keep the passwords they had"
+    if grep -v 'already exists' "${log}" | grep -q 'ERROR'; then
+        echo "errors during the restore:" >&2
+        grep 'ERROR' "${log}" | grep -v 'already exists' >&2
+        exit 1
+    fi
+}
+
+cmd_render() { render_units "${1:?usage: datastore render DIR}"; echo "rendered into ${1}"; }
+
+main() {
+    local c=${1:-help}
+    shift || true
+    case "${c}" in
+        setup) cmd_setup ;;
+        start | stop | restart | enable | disable) cmd_ctl "${c}" "$@" ;;
+        status) cmd_status ;;
+        logs) cmd_logs "$@" ;;
+        psql) cmd_psql "$@" ;;
+        valkey-cli) cmd_valkey_cli "$@" ;;
+        secrets) cmd_secrets "$@" ;;
+        backup) cmd_backup "$@" ;;
+        restore) cmd_restore "$@" ;;
+        render) cmd_render "$@" ;;
+        help | -h | --help) usage ;;
+        *) usage >&2; exit 2 ;;
+    esac
+}
+main "$@"

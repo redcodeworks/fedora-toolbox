@@ -1,0 +1,22 @@
+[Unit]
+Description=PostgreSQL 17 (datastore box)
+
+[Service]
+Type=notify
+User=@USER@
+# /run/postgresql is gone after every box restart; systemd re-creates it for the user on each start
+RuntimeDirectory=postgresql
+# wal_level=logical and the slots/senders are what the postgres container had (change-data-capture tools need them);
+# listen on every address so other containers reach it on the lakehouse network (pg_hba.conf asks for scram passwords)
+ExecStart=/usr/bin/postgres -D @DATA@/postgres -c listen_addresses=* -c unix_socket_directories=/run/postgresql -c wal_level=logical -c max_replication_slots=10 -c max_wal_senders=10
+ExecReload=/bin/kill -HUP $MAINPID
+# SIGINT is PostgreSQL's fast shutdown
+KillMode=mixed
+KillSignal=SIGINT
+TimeoutStartSec=300
+TimeoutStopSec=120
+Restart=on-failure
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
