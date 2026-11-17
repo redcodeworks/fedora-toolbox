@@ -128,7 +128,7 @@ echo "ok: backup wrote a dump and three tars, services are back"
 
 step "box restart (the /run/postgresql gotcha, units and data come back)"
 podman restart -t 20 "${boxa}" >/dev/null
-for i in $(seq 1 60); do
+for _ in $(seq 1 60); do
     state=$(podman exec "${boxa}" systemctl is-system-running 2>/dev/null || true)
     [[ "${state}" == running || "${state}" == degraded ]] && break
     sleep 2
