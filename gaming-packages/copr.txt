@@ -4,7 +4,6 @@
 # Case matters in the package name. The fedora-gaming toolbox does not install this list; the gx host
 # image does.
 #
-# UNVERIFIED NVR: version and release come from the COPR build 10986252 (source version
-# 2026.914.233613-1, fedora-45-x86_64 chroot, 2026-11-16) as relayed by the hub; the dist tag .fc45 is
-# assumed and must be confirmed against the COPR repository before gx consumes this list.
+# VERIFIED: the NVR is from the COPR build 10986252 result (fedora-45-x86_64 chroot) and installed strictly
+# in a real gx image build (2026-11-16).
 lizardbyte/stable:Sunshine-2026.914.233613-1.fc45
