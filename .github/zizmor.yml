@@ -12,3 +12,8 @@ rules:
   github-env:
     ignore:
       - action.yml
+  # build.yml passes `secrets: inherit` to build-image.yml: the signing key is an environment secret of the called workflow's sign job
+  # (`environment: signing`); an explicit pass from the caller resolves empty (no environment there) and overrides the real value.
+  secrets-inherit:
+    ignore:
+      - build.yml
