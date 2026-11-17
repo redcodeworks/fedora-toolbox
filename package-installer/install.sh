@@ -17,6 +17,10 @@
 #                           unavailable on the consumer's release.
 #   OPTIONAL=1              best-effort tier: install the entries one at a time, a failure only warns and
 #                           never fails the build (dna-packages' optional.txt); nothing to install is fine
+#   ENABLE_REPO="id1 id2"   enable these (normally disabled) repositories for this call only: passed as
+#                           --enable-repo to the alternatives lookup and to dnf5 install (gaming-packages'
+#                           negativo17.txt: ENABLE_REPO=fedora-multimedia). The repository must already be
+#                           configured in the image; nothing is left enabled afterwards.
 #   NO_CLEANUP=1            skip the cleanup at the end (a caller that installs several lists cleans up itself)
 #   CLEANUP_ROOT=<dir>      prefix for the cleanup paths (tests only)
 #
@@ -40,13 +44,16 @@ else
 fi
 [[ -f "${list}" ]] || { echo "install.sh: list not found: ${list}" >&2; exit 1; }
 
+repo_args=()
+for r in ${ENABLE_REPO:-}; do repo_args+=("--enable-repo=${r}"); done
+
 declare -A excluded=()
 for x in ${EXCLUDE:-}; do excluded["${x}"]=1; done
 
 # true when the package exists in the enabled repositories (exact name match)
 exists() {
     local out
-    out=$(dnf5 -q repoquery --available --latest-limit=1 --queryformat '%{name}\n' "$1") || return 1
+    out=$(dnf5 -q repoquery "${repo_args[@]}" --available --latest-limit=1 --queryformat '%{name}\n' "$1") || return 1
     grep -Fxq -- "$1" <<<"${out}"
 }
 
@@ -92,7 +99,7 @@ done
 if [[ "${OPTIONAL:-}" == "1" ]]; then
     echo "Installing ${#resolved[@]} optional entries from ${list} one at a time"
     for e in "${resolved[@]}"; do
-        dnf5 -y install "${e}" || echo "install.sh: WARNING optional package '${e}' not installed" >&2
+        dnf5 -y install "${repo_args[@]}" "${e}" || echo "install.sh: WARNING optional package '${e}' not installed" >&2
     done
 else
     if [[ "${#resolved[@]}" -eq 0 ]]; then
@@ -100,7 +107,7 @@ else
         exit 1
     fi
     echo "Installing ${#resolved[@]} entries from ${list}"
-    dnf5 -y install --setopt=strict=1 "${resolved[@]}"
+    dnf5 -y install --setopt=strict=1 "${repo_args[@]}" "${resolved[@]}"
 fi
 
 if [[ "${NO_CLEANUP:-}" == "1" ]]; then

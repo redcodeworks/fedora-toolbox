@@ -56,7 +56,7 @@ names() { # <expected, sorted> <description> <path to touch>
     [[ "${got}" == "${want}" ]] && ok "${d}" || bad "${d} (want '${want}', got '${got}')"
 }
 names "fedora-gaming gaming-packages" "a change to fedora.txt builds gaming-packages and fedora-gaming only" gaming-packages/fedora.txt
-names "fedora-gaming gaming-packages" "a change to rpmfusion.txt builds gaming-packages and fedora-gaming only" gaming-packages/rpmfusion.txt
+names "fedora-gaming gaming-packages" "a change to negativo17.txt builds gaming-packages and fedora-gaming only" gaming-packages/negativo17.txt
 names "fedora-gaming gaming-packages" "a change to copr.txt builds gaming-packages and fedora-gaming (the box does not install it, but the list is its image's own path)" gaming-packages/copr.txt
 names "dna-packages dna-toolbox" "a change to core.txt builds dna-packages and dna-toolbox only" dna-packages/core.txt
 names "dna-packages dna-toolbox" "a change to optional.txt builds dna-packages and dna-toolbox only" dna-packages/optional.txt
@@ -77,7 +77,7 @@ cat > "${tmp}/bin/dnf5" <<'STUB'
 #!/usr/bin/env bash
 echo "dnf5 $*" >> "${STUB_LOG}"
 case " $* " in
-    *" repoquery "*) exit 0 ;;
+    *" repoquery "*) printf '%s\n' "${@: -1}"; exit 0 ;;
     *" install "*) for a in "$@"; do [[ "${a}" == "${STUB_FAIL:-@none@}" ]] && { echo "No match for argument: ${a}" >&2; exit 1; }; done; exit 0 ;;
     *" clean "*) exit 0 ;;
 esac
@@ -119,23 +119,34 @@ NO_CLEANUP=1 OPTIONAL=1 bash "${installer}" "${src}/dna-packages/optional.txt" >
 want="dnf5 -y install --setopt=strict=1 $(ref_entries "${src}/dna-packages/core.txt" | tr '\n' ' ' | sed 's/ $//')"
 while read -r p; do want+=$'\n'"dnf5 -y install ${p}"; done < <(ref_entries "${src}/dna-packages/optional.txt")
 [[ "$(cat "${STUB_LOG}")" == "${want}" ]] && ok "dna-toolbox: the dnf calls equal the old build.sh's ($(ref_entries "${src}/dna-packages/core.txt" | wc -l) core in one strict install, $(ref_entries "${src}/dna-packages/optional.txt" | wc -l) optional one by one)" || bad "dna-toolbox package set differs"
-# fedora-gaming: fedora.txt, then rpmfusion.txt, each its own strict call; copr.txt is not installed
+# fedora-gaming: fedora.txt, then negativo17.txt, each its own strict call; copr.txt is not installed
 bs="${src}/fedora-gaming/build_files/build.sh"
-grep -q '^NO_CLEANUP=1 bash /ctx/gaming-packages/install.sh /ctx/gaming-packages/fedora.txt$' "${bs}" && grep -q '^NO_CLEANUP=1 bash /ctx/gaming-packages/install.sh /ctx/gaming-packages/rpmfusion.txt$' "${bs}" && ok "fedora-gaming build.sh installs fedora.txt and rpmfusion.txt through the installer" || bad "fedora-gaming build.sh invocation"
-[[ "$(grep -n 'gaming-packages/fedora.txt$' "${bs}" | cut -d: -f1)" -lt "$(grep -n 'gaming-packages/rpmfusion.txt$' "${bs}" | cut -d: -f1)" ]] && ok "fedora-gaming build.sh: Fedora before RPM Fusion" || bad "fedora-gaming build.sh order"
+grep -q '^NO_CLEANUP=1 bash /ctx/gaming-packages/install.sh /ctx/gaming-packages/fedora.txt$' "${bs}" && grep -q '^ENABLE_REPO=fedora-multimedia NO_CLEANUP=1 bash /ctx/gaming-packages/install.sh /ctx/gaming-packages/negativo17.txt$' "${bs}" && ok "fedora-gaming build.sh installs fedora.txt and negativo17.txt through the installer" || bad "fedora-gaming build.sh invocation"
+[[ "$(grep -n 'gaming-packages/fedora.txt$' "${bs}" | cut -d: -f1)" -lt "$(grep -n 'gaming-packages/negativo17.txt$' "${bs}" | cut -d: -f1)" ]] && ok "fedora-gaming build.sh: Fedora before negativo17" || bad "fedora-gaming build.sh order"
 grep -v '^[[:space:]]*#' "${bs}" | grep -q 'copr' && bad "fedora-gaming build.sh must not install copr.txt" || ok "fedora-gaming build.sh does not install copr.txt"
 : > "${STUB_LOG}"
 NO_CLEANUP=1 bash "${installer}" "${src}/gaming-packages/fedora.txt" > /dev/null 2>&1
-NO_CLEANUP=1 bash "${installer}" "${src}/gaming-packages/rpmfusion.txt" > /dev/null 2>&1
-want="dnf5 -y install --setopt=strict=1 $(ref_entries "${src}/gaming-packages/fedora.txt" | tr '\n' ' ' | sed 's/ $//')"$'\n'"dnf5 -y install --setopt=strict=1 $(ref_entries "${src}/gaming-packages/rpmfusion.txt" | tr '\n' ' ' | sed 's/ $//')"
-[[ "$(cat "${STUB_LOG}")" == "${want}" ]] && ok "fedora-gaming: two strict dnf calls, Fedora then RPM Fusion ($(ref_entries "${src}/gaming-packages/fedora.txt" | wc -l) and $(ref_entries "${src}/gaming-packages/rpmfusion.txt" | wc -l) entries, name.arch unchanged)" || bad "fedora-gaming package set differs"
+ENABLE_REPO=fedora-multimedia NO_CLEANUP=1 bash "${installer}" "${src}/gaming-packages/negativo17.txt" > /dev/null 2>&1
+want="dnf5 -y install --setopt=strict=1 $(ref_entries "${src}/gaming-packages/fedora.txt" | tr '\n' ' ' | sed 's/ $//')"$'\n'"dnf5 -y install --setopt=strict=1 --enable-repo=fedora-multimedia $(ref_entries "${src}/gaming-packages/negativo17.txt" | tr '\n' ' ' | sed 's/ $//')"
+[[ "$(cat "${STUB_LOG}")" == "${want}" ]] && ok "fedora-gaming: two strict dnf calls, Fedora then negativo17 ($(ref_entries "${src}/gaming-packages/fedora.txt" | wc -l) and $(ref_entries "${src}/gaming-packages/negativo17.txt" | wc -l) entries, name.arch unchanged)" || bad "fedora-gaming package set differs"
+# ENABLE_REPO reaches the install and the alternatives lookup, and nothing else
+printf 'a|b\n' > "${tmp}/alt.txt"
+: > "${STUB_LOG}"
+ENABLE_REPO="r1 r2" NO_CLEANUP=1 bash "${installer}" "${tmp}/alt.txt" > /dev/null 2>&1
+grep -q '^dnf5 -q repoquery --enable-repo=r1 --enable-repo=r2 ' "${STUB_LOG}" && grep -q '^dnf5 -y install --setopt=strict=1 --enable-repo=r1 --enable-repo=r2 ' "${STUB_LOG}" && ok "ENABLE_REPO: one --enable-repo per repository on the lookup and the install call" || bad "ENABLE_REPO install: $(cat "${STUB_LOG}")"
+: > "${STUB_LOG}"
+NO_CLEANUP=1 bash "${installer}" "${tmp}/alt.txt" > /dev/null 2>&1
+grep -q 'enable-repo' "${STUB_LOG}" && bad "no ENABLE_REPO must add no --enable-repo" || ok "without ENABLE_REPO the dnf call is unchanged"
+# negativo17.txt: steam, and no RPM Fusion anywhere in the gaming files
+[[ "$(ref_entries "${src}/gaming-packages/negativo17.txt")" == "steam" ]] && ok "negativo17.txt lists steam" || bad "negativo17.txt content"
+[[ ! -e "${src}/gaming-packages/rpmfusion.txt" ]] && ! grep -rIli 'rpm fusion\|rpmfusion' "${src}/gaming-packages" "${src}/fedora-gaming" > /dev/null && ok "no RPM Fusion in gaming-packages and fedora-gaming" || bad "RPM Fusion is still referenced"
 # every .i686 entry of the shipped lists has its explicit .x86_64 sibling, and the lint rule catches a missing one
 unpaired=$(for e in $(ref_entries "${src}/gaming-packages/fedora.txt" | grep '\.i686$'); do ref_entries "${src}/gaming-packages/fedora.txt" | grep -qxF "${e%.i686}.x86_64" || echo "${e}"; done)
 [[ -z "${unpaired}" ]] && ok "fedora.txt: every .i686 entry has an explicit .x86_64 entry" || bad "fedora.txt: unpaired .i686: ${unpaired}"
 grep -qF '.x86_64 listed explicitly' "${src}/.github/scripts/lint.sh" && ok "lint.sh has the .i686 pairing rule" || bad "lint.sh lacks the .i686 pairing rule"
 [[ ! -e "${src}/gaming-packages/gaming.txt" ]] && ok "gaming.txt is gone (split by source class)" || bad "gaming.txt still exists"
 # the Containerfiles copy the shared files, not copies
-for pair in "dna-toolbox:dna-packages/core.txt dna-packages/optional.txt package-installer/install.sh /dna-packages/" "fedora-gaming:gaming-packages/fedora.txt gaming-packages/rpmfusion.txt package-installer/install.sh /gaming-packages/"; do
+for pair in "dna-toolbox:dna-packages/core.txt dna-packages/optional.txt package-installer/install.sh /dna-packages/" "fedora-gaming:gaming-packages/fedora.txt gaming-packages/negativo17.txt package-installer/install.sh /gaming-packages/"; do
     grep -qF "COPY ${pair#*:}" "${src}/${pair%%:*}/Containerfile" && ok "${pair%%:*}: the Containerfile copies the shared files" || bad "${pair%%:*}: Containerfile copy"
 done
 [[ ! -e "${src}/dna-toolbox/packages" && ! -e "${src}/fedora-gaming/packages" ]] && ok "no second copy of the lists inside the toolbox directories" || bad "a toolbox directory still has packages/"
