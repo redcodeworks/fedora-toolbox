@@ -89,8 +89,7 @@ jobs:
       image_dir: ${{ matrix.dir }}
       mode: ${{ matrix.mode }}
       source: ${{ matrix.source }}
-    secrets:
-      SIGNING_SECRET: ${{ secrets.SIGNING_SECRET }}
+    secrets: inherit
 
   # The branch protection requires checks named "Build and push image" and "Sign and verify images".
   # Matrix and reusable workflow jobs get names of their own, so these two jobs keep the required
