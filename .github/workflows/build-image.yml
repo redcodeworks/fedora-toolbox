@@ -86,12 +86,13 @@ jobs:
           echo "Tested image ${src} is ${before}"
 
           # Verify BEFORE retagging: the signature belongs to the digest and exists from the testing publish
-          cosign verify --key cosign.pub "${image}@${before}" > /dev/null || fallback "no valid signature for ${before}"
+          .github/scripts/retry.sh cosign verify --key cosign.pub "${image}@${before}" > /dev/null || fallback "no valid signature for ${before}"
 
           dated="latest-$(date -u +%Y%m%d)-${GITHUB_SHA::7}"
           for tag in latest "${dated}"; do
             skopeo copy --all --preserve-digests "docker://${src}" "docker://${image}:${tag}"
-            skopeo inspect --raw "docker://${image}:${tag}" > "${RUNNER_TEMP}/after.json"
+            # the tag was written a moment ago: wait until it resolves (GHCR read-after-write lag), then compare at once
+            .github/scripts/retry.sh skopeo inspect --raw "docker://${image}:${tag}" > "${RUNNER_TEMP}/after.json"
             after=$(skopeo manifest-digest "${RUNNER_TEMP}/after.json")
             if [[ "${after}" != "${before}" ]]; then
               echo "::error::${tag} is ${after}, expected ${before}"
@@ -324,11 +325,13 @@ jobs:
           ALIAS_TAGS: ${{ needs.promote.outputs.promoted == 'true' && needs.promote.outputs.alias_tags || needs.build_push.outputs.alias_tags }}
         run: |
           set -euo pipefail
+          # the signature and the tags were written moments ago; GHCR can answer "no signatures found" for a short while
+          # (seen on the first publish of the datastore image: the digest verified, the tag verify a second later did not)
           for digest in ${DIGESTS}; do
-            cosign verify --key cosign.pub "${IMAGE}@${digest}" > /dev/null
+            .github/scripts/retry.sh cosign verify --key cosign.pub "${IMAGE}@${digest}" > /dev/null
             echo "signed: ${digest}"
           done
           for tag in ${ALIAS_TAGS}; do
-            cosign verify --key cosign.pub "${IMAGE}:${tag}" > /dev/null
+            .github/scripts/retry.sh cosign verify --key cosign.pub "${IMAGE}:${tag}" > /dev/null
             echo "signed: ${tag}"
           done
