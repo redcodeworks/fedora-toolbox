@@ -56,6 +56,7 @@ test:
     tests/dna-stack.sh
     tests/bins-pins.sh
     tests/push-tags.sh
+    tests/retry.sh
     tests/workflow-triggers.sh
     tests/datastore-images.sh
     tests/datastore-bundle.sh

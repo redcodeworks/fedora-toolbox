@@ -25,7 +25,16 @@ podman push --digestfile="${digestfile}" "${local_image}" "${registry_image}:${f
 digest=$(tr -d '[:space:]' < "${digestfile}")
 [[ "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::podman push gave no digest for ${first} ('${digest}')" >&2; exit 1; }
 
-registry_digest() { echo "sha256:$(skopeo inspect --raw "docker://${registry_image}:$1" | sha256sum | sed 's/ .*//')"; }
+# The read-back right after a push or copy can answer "manifest unknown" for a moment (registry read-after-write lag):
+# retry.sh waits for the tag to resolve, the comparison below still fails at once on a wrong digest.
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+registry_digest() {
+    local raw
+    raw=$(mktemp)
+    "${here}/retry.sh" skopeo inspect --raw "docker://${registry_image}:$1" > "${raw}" || { rm -f "${raw}"; return 1; }
+    echo "sha256:$(sha256sum < "${raw}" | sed 's/ .*//')"
+    rm -f "${raw}"
+}
 
 # podman's digestfile is the digest of the manifest it wrote; the registry must agree before anything is copied
 got=$(registry_digest "${first}")

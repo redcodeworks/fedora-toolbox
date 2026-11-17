@@ -28,11 +28,16 @@ cat > "$root/bin/skopeo" <<'F'
 #!/usr/bin/env bash
 echo "skopeo $*" >> "${CALLS}"
 case "$1 $2" in
-    "inspect --raw") tag="${3##*:}"; [[ -f "${REG}/${tag}" ]] && cat "${REG}/${tag}" || exit 1 ;;
+    "inspect --raw")
+        tag="${3##*:}"
+        # LAG_ONCE=1: the first read of every tag fails with "manifest unknown" (registry read-after-write lag)
+        if [[ "${LAG_ONCE:-}" == 1 && ! -e "${REG}/.seen-${tag}" ]]; then : > "${REG}/.seen-${tag}"; echo "manifest unknown" >&2; exit 2; fi
+        [[ -f "${REG}/${tag}" ]] && cat "${REG}/${tag}" || exit 1 ;;
     "copy --all")
         [[ "$3" == --preserve-digests ]] || exit 1
         src="${4#docker://}"; dst="${5#docker://}"; want="${src##*@}"
         for f in "${REG}"/*; do
+            [[ -f "${f}" && "${f##*/}" != .* ]] || continue
             [[ "sha256:$(sha256sum < "${f}" | sed 's/ .*//')" == "${want}" ]] || continue
             if [[ "${BREAK_COPY:-}" == 1 ]]; then echo "other" > "${REG}/${dst##*:}"; else cp "${f}" "${REG}/${dst##*:}"; fi
             exit 0
@@ -43,7 +48,8 @@ esac
 F
 chmod +x "$root/bin"/*
 export CALLS="$root/calls" REG="$root/reg"
-run() { rm -f "$REG"/*; : > "$CALLS"; : > "$root/out"; PATH="$root/bin:$PATH" GITHUB_OUTPUT="$root/out" bash "$script" "$@" > "$root/log" 2>&1; }
+export RETRY_DELAY=0 RETRY_TRIES=4
+run() { rm -f "$REG"/* "$REG"/.seen-*; : > "$CALLS"; : > "$root/out"; PATH="$root/bin:$PATH" GITHUB_OUTPUT="$root/out" bash "$script" "$@" > "$root/log" 2>&1; }
 dg() { echo "sha256:$(sha256sum < "$REG/$1" | sed 's/ .*//')"; }
 
 run local:build ghcr.io/o/img testing-abc1234 testing
@@ -60,6 +66,9 @@ run local:build ghcr.io/o/img latest-1 latest-20261110-abc1234 20261110-abc1234 
 
 run local:build ghcr.io/o/img only
 [[ $? -eq 0 && "$(grep -c '^skopeo copy' "$CALLS")" == 0 ]] && pass "one tag: a push and no copy" || bad "one tag"
+
+LAG_ONCE=1 run local:build ghcr.io/o/img a b
+[[ $? -eq 0 && "$(dg a)" == "$(dg b)" ]] && grep -q 'retry.sh: attempt 1' "$root/log" && pass "a tag that is not readable yet is waited for, then the digests are compared" || bad "read-after-write lag"
 
 BREAK_COPY=1 run local:build ghcr.io/o/img a b
 [[ $? -ne 0 ]] && grep -q '::error::b is' "$root/log" && pass "a copy that changes the digest fails the step" || bad "broken copy"
