@@ -300,6 +300,7 @@ jobs:
         uses: ./.github/actions/setup-tool
         with:
           tool: cosign
+          cache: "false"   # the signing job holds the key: run only a freshly downloaded and verified cosign
 
       # A promoted image is already signed (its digest was verified before retagging); only a fresh build is signed
       - name: Sign every pushed digest
