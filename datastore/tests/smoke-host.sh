@@ -38,8 +38,7 @@ start_box() { # name
     podman run -d --name "$1" --systemd=always --network "${net}" "${aliases[@]}" \
         -p 127.0.0.1::5432 -p 127.0.0.1::6379 -p 127.0.0.1::8333 -p 127.0.0.1::9333 -p 127.0.0.1::8888 -p 127.0.0.1::9092 \
         "${image}" /usr/lib/systemd/systemd >/dev/null
-    local i
-    for i in $(seq 1 60); do
+    for _ in $(seq 1 60); do
         state=$(podman exec "$1" systemctl is-system-running 2>/dev/null || true)
         [[ "${state}" == running || "${state}" == degraded ]] && break
         sleep 2
@@ -50,9 +49,9 @@ start_box() { # name
 }
 
 wait_for() { # box description command...: retry up to 3 minutes
-    local box=$1 what=$2 i
+    local box=$1 what=$2
     shift 2
-    for i in $(seq 1 90); do
+    for _ in $(seq 1 90); do
         if podman exec --user dsuser -e HOME=/home/dsuser "${box}" bash -c "$*" >/dev/null 2>&1; then echo "ok: ${what}"; return 0; fi
         sleep 2
     done
