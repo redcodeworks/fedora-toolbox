@@ -12,11 +12,10 @@ bad() { failn=$((failn + 1)); echo "FAIL $1"; }
 tmp=$(mktemp -d)
 trap 'rm -rf "${tmp}"' EXIT
 
-# --- the real Containerfiles: pinned, shaped as lint expects, one digest per variant
+# --- the real Containerfiles that still pin: shaped as lint expects (fedora-gaming has its own lists and no pin since stage 2)
 for d in fedora-toolbox dna-toolbox; do
     grep -qE '^FROM ghcr\.io/redcodeworks/octarine-bins-dx@\$\{BINS_DIGEST\} AS bins$' "${src}/${d}/Containerfile" && ok "${d} pins octarine-bins-dx by digest" || bad "${d} does not pin octarine-bins-dx"
 done
-grep -qE '^FROM ghcr\.io/redcodeworks/octarine-bins-gx@\$\{BINS_DIGEST\} AS bins$' "${src}/fedora-gaming/Containerfile" && ok "fedora-gaming pins octarine-bins-gx by digest" || bad "fedora-gaming does not pin octarine-bins-gx"
 [[ "$(grep -h '^ARG BINS_DIGEST=' "${src}/fedora-toolbox/Containerfile" "${src}/dna-toolbox/Containerfile" | sort -u | wc -l)" == 1 ]] && ok "the two dx pins are the same digest" || bad "fedora-toolbox and dna-toolbox pin different dx digests"
 grep -q 'BEGIN PUBLIC KEY' "${src}/keys/octarine-bins.pub" && ok "keys/octarine-bins.pub is a public key" || bad "keys/octarine-bins.pub missing"
 ! grep -q 'PRIVATE' "${src}/keys/octarine-bins.pub" && ok "keys/octarine-bins.pub holds no private key" || bad "private key material in keys/"
