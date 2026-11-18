@@ -37,6 +37,14 @@ smoke image tag=default_tag:
     if [[ -x "${dir}/tests/smoke-host.sh" ]]; then exec "${dir}/tests/smoke-host.sh" "localhost/${name}:{{ tag }}"; fi
     podman run --rm -v "{{ justfile_directory() }}/${dir}/tests/smoke.sh:/smoke.sh:ro" "localhost/${name}:{{ tag }}" bash /smoke.sh
 
+# Use this repository's git hooks (format staged Python with ruff and shell with shfmt on commit)
+[group('Image')]
+install-hooks:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    git config core.hooksPath githooks
+    echo "Git hooks enabled from githooks/. The pre-commit format needs uv (ruff) and shfmt: brew install shfmt"
+
 # Lint scripts, image layouts and package lists, and enforce "toolbox images only"
 [group('Image')]
 lint:
