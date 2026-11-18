@@ -14,25 +14,25 @@ mapfile -d '' staged < <(git diff --cached --name-only --diff-filter=ACM -z)
 
 py=()
 for f in "${staged[@]}"; do
-    [[ "$f" == *.py ]] && py+=("$f")
+	[[ "$f" == *.py ]] && py+=("$f")
 done
 sh=()
 if command -v shfmt >/dev/null 2>&1; then
-    mapfile -t sh < <(shfmt -f -- "${staged[@]}")
+	mapfile -t sh < <(shfmt -f -- "${staged[@]}")
 else
-    echo "pre-commit: shfmt is not installed, so the shell files were not formatted" >&2
+	echo "pre-commit: shfmt is not installed, so the shell files were not formatted" >&2
 fi
 
 if [[ ${#py[@]} -gt 0 ]]; then
-    if command -v uv >/dev/null 2>&1; then
-        uvx --quiet "ruff@${RUFF_VERSION}" format -- "${py[@]}" || echo "pre-commit: ruff could not run, so the Python files were not formatted" >&2
-        git add -- "${py[@]}"
-    else
-        echo "pre-commit: uv is not installed, so the Python files were not formatted" >&2
-    fi
+	if command -v uv >/dev/null 2>&1; then
+		uvx --quiet "ruff@${RUFF_VERSION}" format -- "${py[@]}" || echo "pre-commit: ruff could not run, so the Python files were not formatted" >&2
+		git add -- "${py[@]}"
+	else
+		echo "pre-commit: uv is not installed, so the Python files were not formatted" >&2
+	fi
 fi
 
 if [[ ${#sh[@]} -gt 0 ]]; then
-    shfmt -w -- "${sh[@]}"
-    git add -- "${sh[@]}"
+	shfmt -w -- "${sh[@]}"
+	git add -- "${sh[@]}"
 fi
