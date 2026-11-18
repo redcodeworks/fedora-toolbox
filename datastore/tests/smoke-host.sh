@@ -16,18 +16,22 @@ boxa="ds-smoke-a-${id}"
 boxb="ds-smoke-b-${id}"
 aliases=(--network-alias pgsql --network-alias postgresql --network-alias valkey --network-alias seaweedfs --network-alias kafka)
 
-fail() { echo "SMOKE FAIL: $*" >&2; dump_logs; exit 1; }
+fail() {
+	echo "SMOKE FAIL: $*" >&2
+	dump_logs
+	exit 1
+}
 dump_logs() {
-    local b
-    for b in "${boxa}" "${boxb}"; do
-        podman container exists "${b}" 2>/dev/null || continue
-        echo "---- ${b}: failed units and journal tail" >&2
-        podman exec "${b}" bash -c 'systemctl --failed --no-legend; journalctl -n 60 --no-pager' >&2 || true
-    done
+	local b
+	for b in "${boxa}" "${boxb}"; do
+		podman container exists "${b}" 2>/dev/null || continue
+		echo "---- ${b}: failed units and journal tail" >&2
+		podman exec "${b}" bash -c 'systemctl --failed --no-legend; journalctl -n 60 --no-pager' >&2 || true
+	done
 }
 cleanup() {
-    podman rm -f -t 2 "${boxa}" "${boxb}" >/dev/null 2>&1 || true
-    podman network rm "${net}" >/dev/null 2>&1 || true
+	podman rm -f -t 2 "${boxa}" "${boxb}" >/dev/null 2>&1 || true
+	podman network rm "${net}" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -35,27 +39,30 @@ step() { echo "== $*"; }
 ds() { podman exec --user dsuser -e HOME=/home/dsuser "$1" "${@:2}"; } # ds <box> <command...>
 
 start_box() { # name
-    podman run -d --name "$1" --systemd=always --network "${net}" "${aliases[@]}" \
-        -p 127.0.0.1::5432 -p 127.0.0.1::6379 -p 127.0.0.1::8333 -p 127.0.0.1::9333 -p 127.0.0.1::8888 -p 127.0.0.1::9092 \
-        "${image}" /usr/lib/systemd/systemd >/dev/null
-    for _ in $(seq 1 60); do
-        state=$(podman exec "$1" systemctl is-system-running 2>/dev/null || true)
-        [[ "${state}" == running || "${state}" == degraded ]] && break
-        sleep 2
-    done
-    [[ "${state:-}" == running || "${state:-}" == degraded ]] || fail "systemd in $1 never came up (state: ${state:-none})"
-    # distrobox gives the box user passwordless sudo; do the same
-    podman exec "$1" bash -c 'useradd -m dsuser && echo "dsuser ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/dsuser'
+	podman run -d --name "$1" --systemd=always --network "${net}" "${aliases[@]}" \
+		-p 127.0.0.1::5432 -p 127.0.0.1::6379 -p 127.0.0.1::8333 -p 127.0.0.1::9333 -p 127.0.0.1::8888 -p 127.0.0.1::9092 \
+		"${image}" /usr/lib/systemd/systemd >/dev/null
+	for _ in $(seq 1 60); do
+		state=$(podman exec "$1" systemctl is-system-running 2>/dev/null || true)
+		[[ "${state}" == running || "${state}" == degraded ]] && break
+		sleep 2
+	done
+	[[ "${state:-}" == running || "${state:-}" == degraded ]] || fail "systemd in $1 never came up (state: ${state:-none})"
+	# distrobox gives the box user passwordless sudo; do the same
+	podman exec "$1" bash -c 'useradd -m dsuser && echo "dsuser ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/dsuser'
 }
 
 wait_for() { # box description command...: retry up to 3 minutes
-    local box=$1 what=$2
-    shift 2
-    for _ in $(seq 1 90); do
-        if podman exec --user dsuser -e HOME=/home/dsuser "${box}" bash -c "$*" >/dev/null 2>&1; then echo "ok: ${what}"; return 0; fi
-        sleep 2
-    done
-    fail "${what}"
+	local box=$1 what=$2
+	shift 2
+	for _ in $(seq 1 90); do
+		if podman exec --user dsuser -e HOME=/home/dsuser "${box}" bash -c "$*" >/dev/null 2>&1; then
+			echo "ok: ${what}"
+			return 0
+		fi
+		sleep 2
+	done
+	fail "${what}"
 }
 
 step "in-image checks"
@@ -69,16 +76,16 @@ echo "ok: systemd is PID 1 (state ${state})"
 ds "${boxa}" datastore setup >/dev/null
 ds "${boxa}" datastore start >/dev/null || fail "datastore start"
 for p in 5432 6379 8333 9333 8888 9092; do
-    wait_for "${boxa}" "port ${p} open" "exec 3<>/dev/tcp/127.0.0.1/${p}"
+	wait_for "${boxa}" "port ${p} open" "exec 3<>/dev/tcp/127.0.0.1/${p}"
 done
 for s in postgres valkey seaweedfs kafka; do
-    podman exec "${boxa}" systemctl is-active --quiet "datastore-${s}.service" || fail "datastore-${s} is not active"
-    echo "ok: datastore-${s} active"
+	podman exec "${boxa}" systemctl is-active --quiet "datastore-${s}.service" || fail "datastore-${s} is not active"
+	echo "ok: datastore-${s} active"
 done
 for p in 5432 6379 8333 9333 8888 9092; do
-    hp=$(podman port "${boxa}" "${p}/tcp" | head -n1)
-    [[ -n "${hp}" ]] || fail "port ${p} is not published"
-    (exec 3<>"/dev/tcp/${hp%:*}/${hp##*:}") 2>/dev/null || fail "published port ${p} (${hp}) does not answer from the host"
+	hp=$(podman port "${boxa}" "${p}/tcp" | head -n1)
+	[[ -n "${hp}" ]] || fail "port ${p} is not published"
+	(exec 3<>"/dev/tcp/${hp%:*}/${hp##*:}") 2>/dev/null || fail "published port ${p} (${hp}) does not answer from the host"
 done
 echo "ok: all six ports answer on the published loopback ports"
 

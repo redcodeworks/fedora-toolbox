@@ -15,36 +15,51 @@ set -euo pipefail
 local_image="${1:?local image}"
 registry_image="${2:?registry image}"
 shift 2
-[[ $# -ge 1 ]] || { echo "::error::push-tags.sh needs at least one tag" >&2; exit 1; }
+[[ $# -ge 1 ]] || {
+	echo "::error::push-tags.sh needs at least one tag" >&2
+	exit 1
+}
 
 first="$1"
 shift
 digestfile=$(mktemp)
 trap 'rm -f "${digestfile}"' EXIT
 podman push --digestfile="${digestfile}" "${local_image}" "${registry_image}:${first}"
-digest=$(tr -d '[:space:]' < "${digestfile}")
-[[ "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::podman push gave no digest for ${first} ('${digest}')" >&2; exit 1; }
+digest=$(tr -d '[:space:]' <"${digestfile}")
+[[ "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+	echo "::error::podman push gave no digest for ${first} ('${digest}')" >&2
+	exit 1
+}
 
 # The read-back right after a push or copy can answer "manifest unknown" for a moment (registry read-after-write lag):
 # retry.sh waits for the tag to resolve, the comparison below still fails at once on a wrong digest.
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 registry_digest() {
-    local raw
-    raw=$(mktemp)
-    "${here}/retry.sh" skopeo inspect --raw "docker://${registry_image}:$1" > "${raw}" || { rm -f "${raw}"; return 1; }
-    echo "sha256:$(sha256sum < "${raw}" | sed 's/ .*//')"
-    rm -f "${raw}"
+	local raw
+	raw=$(mktemp)
+	"${here}/retry.sh" skopeo inspect --raw "docker://${registry_image}:$1" >"${raw}" || {
+		rm -f "${raw}"
+		return 1
+	}
+	echo "sha256:$(sha256sum <"${raw}" | sed 's/ .*//')"
+	rm -f "${raw}"
 }
 
 # podman's digestfile is the digest of the manifest it wrote; the registry must agree before anything is copied
 got=$(registry_digest "${first}")
-[[ "${got}" == "${digest}" ]] || { echo "::error::${first} is ${got} in the registry, podman pushed ${digest}" >&2; exit 1; }
+[[ "${got}" == "${digest}" ]] || {
+	echo "::error::${first} is ${got} in the registry, podman pushed ${digest}" >&2
+	exit 1
+}
 
 for tag in "$@"; do
-    skopeo copy --all --preserve-digests "docker://${registry_image}@${digest}" "docker://${registry_image}:${tag}"
-    got=$(registry_digest "${tag}")
-    [[ "${got}" == "${digest}" ]] || { echo "::error::${tag} is ${got}, expected ${digest}" >&2; exit 1; }
+	skopeo copy --all --preserve-digests "docker://${registry_image}@${digest}" "docker://${registry_image}:${tag}"
+	got=$(registry_digest "${tag}")
+	[[ "${got}" == "${digest}" ]] || {
+		echo "::error::${tag} is ${got}, expected ${digest}" >&2
+		exit 1
+	}
 done
 echo "pushed ${first} $* -> ${digest}"
 echo "digests=${digest}"
-[[ -z "${GITHUB_OUTPUT:-}" ]] || echo "digests=${digest}" >> "${GITHUB_OUTPUT}"
+[[ -z "${GITHUB_OUTPUT:-}" ]] || echo "digests=${digest}" >>"${GITHUB_OUTPUT}"
