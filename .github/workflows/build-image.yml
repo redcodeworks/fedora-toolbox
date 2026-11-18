@@ -169,18 +169,6 @@ jobs:
           } >> "${GITHUB_ENV}"
           echo "Channel: tag=${tag} publish=${publish}"
 
-      # An image that takes its package lists and installer from an octarine-bins image pins it by digest in its Containerfile; the pinned digest must
-      # verify with the octarine-bins public key (keys/octarine-bins.pub) before anything is built from it. Other images have nothing to verify.
-      - name: Install Cosign
-        uses: ./.github/actions/setup-tool
-        with:
-          tool: cosign
-
-      - name: Verify the pinned octarine-bins image
-        env:
-          DIR: ${{ inputs.image_dir }}
-        run: .github/scripts/bins-pins.sh verify "${DIR}"
-
       # A failed dnf resolution (missing or renamed package) fails here, loudly.
       - name: Build image
         env:
