@@ -9,10 +9,16 @@ set -uo pipefail
 expected="kafka postgresql seaweedfs valkey"
 
 file="${1:-$(dirname "${BASH_SOURCE[0]}")/images.txt}"
-[[ -f "${file}" ]] || { echo "validate: ${file}: no such file" >&2; exit 1; }
+[[ -f "${file}" ]] || {
+	echo "validate: ${file}: no such file" >&2
+	exit 1
+}
 
 fail=0
-err() { echo "validate: ${file}:$1: $2" >&2; fail=1; }
+err() {
+	echo "validate: ${file}:$1: $2" >&2
+	fail=1
+}
 
 line_re='^([a-z]+) ([a-z0-9][a-z0-9.-]*(:[0-9]+)?(/[a-z0-9._-]+)+):([^@:[:space:]]+)@(sha256:[0-9a-f]{64})$'
 tag_re='^[0-9]+\.[0-9]+(\.[0-9]+)*(-[A-Za-z0-9._]+)?$'
@@ -20,26 +26,29 @@ tag_re='^[0-9]+\.[0-9]+(\.[0-9]+)*(-[A-Za-z0-9._]+)?$'
 declare -A seen=()
 n=0
 while IFS= read -r line || [[ -n "${line}" ]]; do
-    n=$((n + 1))
-    [[ "${line}" =~ ^[[:space:]]*$ || "${line}" =~ ^[[:space:]]*# ]] && continue
-    if [[ ! "${line}" =~ ${line_re} ]]; then
-        err "${n}" "not '<name> <image>:<tag>@sha256:<64 hex>': ${line}"
-        continue
-    fi
-    name="${BASH_REMATCH[1]}"
-    tag="${BASH_REMATCH[5]}"
-    if [[ "${tag}" == "latest" ]]; then
-        err "${n}" "${name}: tag 'latest' is not allowed"
-    elif [[ ! "${tag}" =~ ${tag_re} ]]; then
-        err "${n}" "${name}: tag '${tag}' is not an exact version (needs major.minor at least, no floating major tag)"
-    fi
-    [[ " ${expected} " == *" ${name} "* ]] || err "${n}" "unknown name '${name}' (expected: ${expected})"
-    [[ -z "${seen[${name}]:-}" ]] || err "${n}" "duplicate name '${name}' (first on line ${seen[${name}]})"
-    seen[${name}]="${n}"
+	n=$((n + 1))
+	[[ "${line}" =~ ^[[:space:]]*$ || "${line}" =~ ^[[:space:]]*# ]] && continue
+	if [[ ! "${line}" =~ ${line_re} ]]; then
+		err "${n}" "not '<name> <image>:<tag>@sha256:<64 hex>': ${line}"
+		continue
+	fi
+	name="${BASH_REMATCH[1]}"
+	tag="${BASH_REMATCH[5]}"
+	if [[ "${tag}" == "latest" ]]; then
+		err "${n}" "${name}: tag 'latest' is not allowed"
+	elif [[ ! "${tag}" =~ ${tag_re} ]]; then
+		err "${n}" "${name}: tag '${tag}' is not an exact version (needs major.minor at least, no floating major tag)"
+	fi
+	[[ " ${expected} " == *" ${name} "* ]] || err "${n}" "unknown name '${name}' (expected: ${expected})"
+	[[ -z "${seen[${name}]:-}" ]] || err "${n}" "duplicate name '${name}' (first on line ${seen[${name}]})"
+	seen[${name}]="${n}"
 done <"${file}"
 
 for name in ${expected}; do
-    [[ -n "${seen[${name}]:-}" ]] || { echo "validate: ${file}: missing image '${name}'" >&2; fail=1; }
+	[[ -n "${seen[${name}]:-}" ]] || {
+		echo "validate: ${file}: missing image '${name}'" >&2
+		fail=1
+	}
 done
 
 if ((fail)); then exit 1; fi

@@ -6,8 +6,14 @@ src="${here}/.."
 d="${src}/datastore"
 pass=0
 failn=0
-ok() { pass=$((pass + 1)); echo "ok   $1"; }
-bad() { failn=$((failn + 1)); echo "FAIL $1"; }
+ok() {
+	pass=$((pass + 1))
+	echo "ok   $1"
+}
+bad() {
+	failn=$((failn + 1))
+	echo "FAIL $1"
+}
 tmp=$(mktemp -d)
 trap 'rm -rf "${tmp}"' EXIT
 
@@ -18,11 +24,11 @@ REPO_ROOT="${src}" "${src}/.github/scripts/images.sh" list | cut -f1,2 | grep -q
 # downloads.lock: name|version|url|algorithm|checksum, pinned, https, checksum of the right length
 n=0
 while IFS='|' read -r name version url algo sum; do
-    case "${name}" in '' | '#'*) continue ;; esac
-    n=$((n + 1))
-    [[ "${url}" == https://* && "${url}" == *"${version}"* ]] || bad "${name}: url is not https or does not carry the version"
-    case "${algo}" in sha256) len=64 ;; sha512) len=128 ;; *) len=0 ;; esac
-    [[ "${#sum}" -eq "${len}" && "${sum}" =~ ^[0-9a-f]+$ ]] || bad "${name}: checksum is not a lowercase ${algo}"
+	case "${name}" in '' | '#'*) continue ;; esac
+	n=$((n + 1))
+	[[ "${url}" == https://* && "${url}" == *"${version}"* ]] || bad "${name}: url is not https or does not carry the version"
+	case "${algo}" in sha256) len=64 ;; sha512) len=128 ;; *) len=0 ;; esac
+	[[ "${#sum}" -eq "${len}" && "${sum}" =~ ^[0-9a-f]+$ ]] || bad "${name}: checksum is not a lowercase ${algo}"
 done <"${d}/downloads.lock"
 [[ "${n}" -eq 2 ]] && ok "downloads.lock pins seaweedfs and kafka with checksums" || bad "downloads.lock has ${n} entries, expected 2"
 grep -q 'sum" -c' "${d}/build_files/build.sh" && ok "build.sh verifies the checksums" || bad "build.sh does not verify checksums"
@@ -34,8 +40,8 @@ grep -qx postgresql17-server "${d}/packages/required-fedora.txt" && ok "PostgreS
 
 # units: run as the box user (rendered at setup), no hard-coded user or home
 for u in postgres valkey seaweedfs kafka; do
-    f="${d}/units/datastore-${u}.service.in"
-    [[ -f "${f}" ]] && grep -q '^User=@USER@$' "${f}" && ! grep -qE '/home/|User=(root|postgres|kevin)' "${f}" && ok "unit ${u} runs as @USER@" || bad "unit ${u} is missing or hard-codes a user"
+	f="${d}/units/datastore-${u}.service.in"
+	[[ -f "${f}" ]] && grep -q '^User=@USER@$' "${f}" && ! grep -qE '/home/|User=(root|postgres|kevin)' "${f}" && ok "unit ${u} runs as @USER@" || bad "unit ${u} is missing or hard-codes a user"
 done
 grep -q '^RuntimeDirectory=postgresql$' "${d}/units/datastore-postgres.service.in" && ok "postgres recreates /run/postgresql on start" || bad "postgres unit lacks RuntimeDirectory=postgresql"
 grep -q '^SuccessExitStatus=143$' "${d}/units/datastore-kafka.service.in" && ok "kafka treats exit 143 as a clean stop" || bad "kafka unit lacks SuccessExitStatus=143"

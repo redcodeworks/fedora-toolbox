@@ -9,12 +9,15 @@ root=$(mktemp -d)
 trap 'rm -rf -- "$root"' EXIT
 fail=0
 pass() { echo "PASS $1"; }
-bad() { echo "FAIL $1"; fail=1; }
+bad() {
+	echo "FAIL $1"
+	fail=1
+}
 
 mkdir -p "$root/bin" "$root/reg"
 # stub registry: $root/reg/<tag> holds the manifest bytes of a tag; every `podman push` writes a NEW manifest (the bug:
 # the same image pushed twice gives two digests); `skopeo copy ...@<digest> ...:<tag>` copies by digest (BREAK_COPY=1: wrong content)
-cat > "$root/bin/podman" <<'F'
+cat >"$root/bin/podman" <<'F'
 #!/usr/bin/env bash
 echo "podman $*" >> "${CALLS}"
 [[ "$1" == push ]] || exit 1
@@ -24,7 +27,7 @@ n=$(grep -c '^podman push' "${CALLS}")
 printf 'manifest-%s-%s' "${tag}" "${n}" > "${REG}/${tag}"
 echo "sha256:$(sha256sum < "${REG}/${tag}" | sed 's/ .*//')" > "${df}"
 F
-cat > "$root/bin/skopeo" <<'F'
+cat >"$root/bin/skopeo" <<'F'
 #!/usr/bin/env bash
 echo "skopeo $*" >> "${CALLS}"
 case "$1 $2" in
@@ -49,12 +52,20 @@ F
 chmod +x "$root/bin"/*
 export CALLS="$root/calls" REG="$root/reg"
 export RETRY_DELAY=0 RETRY_TRIES=4
-run() { rm -f "$REG"/* "$REG"/.seen-*; : > "$CALLS"; : > "$root/out"; PATH="$root/bin:$PATH" GITHUB_OUTPUT="$root/out" bash "$script" "$@" > "$root/log" 2>&1; }
-dg() { echo "sha256:$(sha256sum < "$REG/$1" | sed 's/ .*//')"; }
+run() {
+	rm -f "$REG"/* "$REG"/.seen-*
+	: >"$CALLS"
+	: >"$root/out"
+	PATH="$root/bin:$PATH" GITHUB_OUTPUT="$root/out" bash "$script" "$@" >"$root/log" 2>&1
+}
+dg() { echo "sha256:$(sha256sum <"$REG/$1" | sed 's/ .*//')"; }
 
 run local:build ghcr.io/o/img testing-abc1234 testing
 rc=$?
-[[ $rc -eq 0 ]] && pass "two tags: succeeds" || { bad "two tags (rc $rc)"; sed 's/^/     /' "$root/log"; }
+[[ $rc -eq 0 ]] && pass "two tags: succeeds" || {
+	bad "two tags (rc $rc)"
+	sed 's/^/     /' "$root/log"
+}
 [[ "$(grep -c '^podman push' "$CALLS")" == 1 ]] && pass "exactly one podman push" || bad "push count"
 [[ "$(dg testing-abc1234)" == "$(dg testing)" ]] && pass "every tag has the same manifest digest" || bad "digests differ"
 grep -q "^skopeo copy --all --preserve-digests docker://ghcr.io/o/img@$(dg testing-abc1234) docker://ghcr.io/o/img:testing\$" "$CALLS" && pass "the second tag is a digest copy of the pushed digest" || bad "copy call"

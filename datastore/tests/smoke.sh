@@ -4,12 +4,15 @@
 # The runtime test (the real box with its own systemd) is tests/smoke-host.sh, which `just smoke` runs on the host.
 set -euo pipefail
 
-fail() { echo "SMOKE FAIL: $*" >&2; exit 1; }
+fail() {
+	echo "SMOKE FAIL: $*" >&2
+	exit 1
+}
 
 run() {
-    local out
-    out=$("$@" 2>&1) || fail "'$*' failed: $out"
-    echo "ok: $* -> $(head -n1 <<<"$out")"
+	local out
+	out=$("$@" 2>&1) || fail "'$*' failed: $out"
+	echo "ok: $* -> $(head -n1 <<<"$out")"
 }
 
 run postgres --version
@@ -30,8 +33,8 @@ run datastore --help
 
 # Templates are rendered at setup time with the box user's name: nothing may be hard-coded
 for f in /usr/share/datastore/units/datastore-{postgres,valkey,seaweedfs,kafka}.service.in; do
-    [ -f "$f" ] || fail "missing $f"
-    grep -q '^User=@USER@$' "$f" || fail "$f does not run as @USER@"
+	[ -f "$f" ] || fail "missing $f"
+	grep -q '^User=@USER@$' "$f" || fail "$f does not run as @USER@"
 done
 out=$(mktemp -d)
 HOME=/nonexistent datastore render "$out" >/dev/null

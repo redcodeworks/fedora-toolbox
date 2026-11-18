@@ -17,10 +17,10 @@ for e in json.loads(sys.argv[1])["include"]: print(e["image"], e["dir"])' "${mat
 
 lines=""
 for entry in "${entries[@]}"; do
-    [[ -n "${entry}" ]] || continue
-    read -r image dir <<<"${entry}"
-    decision=$("${here}/promote-decision.sh" "${event}" "${ref}" "${dir}" "${image}")
-    lines+="${image} ${dir} ${decision}"$'\n'
+	[[ -n "${entry}" ]] || continue
+	read -r image dir <<<"${entry}"
+	decision=$("${here}/promote-decision.sh" "${event}" "${ref}" "${dir}" "${image}")
+	lines+="${image} ${dir} ${decision}"$'\n'
 done
 
 python3 -I -c 'import json,sys

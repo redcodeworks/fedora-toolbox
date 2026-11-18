@@ -10,8 +10,8 @@ rm -f /etc/yum.repos.d/terra*.repo
 rpm -qa 'terra*' | xargs -r rpm -e --nodeps
 rm -f /etc/dnf/repos.override.d/99-config_manager.repo
 if grep -rIli 'terra' /etc/yum.repos.d /etc/dnf/repos.override.d 2>/dev/null; then
-    echo "build.sh: Terra configuration is still present" >&2
-    exit 1
+	echo "build.sh: Terra configuration is still present" >&2
+	exit 1
 fi
 
 # (b) Put x86_64 Mesa on Fedora's version (newer than Terra's); i686 Mesa then comes from the same
@@ -20,7 +20,7 @@ dnf5 -y distro-sync --refresh 'mesa*'
 
 # (c) Steam comes from negativo17 (repo id fedora-multimedia). This base does not configure it (the Universal Blue OS base does), so write the
 # same repository definition, DISABLED; the installer enables it for the negativo17 list only.
-cat > /etc/yum.repos.d/negativo17-fedora-multimedia.repo <<'REPO'
+cat >/etc/yum.repos.d/negativo17-fedora-multimedia.repo <<'REPO'
 [fedora-multimedia]
 name=negativo17 - Multimedia
 baseurl=https://negativo17.org/repos/multimedia/fedora-$releasever/$basearch/
@@ -46,4 +46,4 @@ dnf5 clean all
 # Build residue that must not ship: dnf logs (they contain mirror URLs), root's ssh, vim, wget and
 # cache leftovers, and the dnf caches
 rm -rf /var/cache/libdnf5 /var/cache/dnf /var/log/dnf5.log* /var/log/dnf.log* \
-    /root/.ssh /root/.viminfo /root/.cache /root/.local/share/wget /root/.wget-hsts 2>/dev/null || true
+	/root/.ssh /root/.viminfo /root/.cache /root/.local/share/wget /root/.wget-hsts 2>/dev/null || true
