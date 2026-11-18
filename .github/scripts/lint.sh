@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Lint the repo: script syntax (and shellcheck at warning level, CI only unless installed), the layout of every image directory,
-# the package lists and bins pins, unique image names, and the "toolbox images only" rule (no OS-image parts).
+# the package lists, unique image names, and the "toolbox images only" rule (no OS-image parts).
 # REPO_ROOT overrides the repository root (the scaffold test lints a temporary copy).
 set -euo pipefail
 
@@ -49,16 +49,7 @@ for d in $(image_dirs); do
         [[ -x "${d}/tests/smoke.sh" ]] || err "${d}/tests/smoke.sh missing or not executable"
         [[ -f "${d}/build_files/build.sh" ]] || err "${d}/build_files/build.sh missing"
         lists=("${d}"/packages/*.txt)
-        # an image that takes its lists from an octarine-bins image (fedora-toolbox, fedora-gaming) has none of its own
-        if [[ ${#lists[@]} -eq 0 ]] && ! grep -qE '^FROM ghcr\.io/redcodeworks/octarine-bins-(dx|gx)@' "${d}/Containerfile"; then
-            err "${d}/packages/*.txt missing (and the Containerfile does not take its lists from an octarine-bins image)"
-        fi
-        # a pinned octarine-bins image needs its digest and tag ARGs (bins-pins.sh verifies and bumps them)
-        if grep -qE '^FROM ghcr\.io/redcodeworks/octarine-bins-' "${d}/Containerfile"; then
-            grep -qE '^ARG BINS_DIGEST=sha256:[0-9a-f]{64}$' "${d}/Containerfile" || err "${d}/Containerfile: ARG BINS_DIGEST=sha256:<64 hex> missing or malformed"
-            grep -qE '^ARG BINS_TAG=[0-9]{8}-[0-9a-f]{7}$' "${d}/Containerfile" || err "${d}/Containerfile: ARG BINS_TAG=<YYYYMMDD>-<sha7> missing or malformed"
-            grep -qE '^FROM ghcr\.io/redcodeworks/octarine-bins-(dx|gx)@\$\{BINS_DIGEST\} AS bins$' "${d}/Containerfile" || err "${d}/Containerfile: the bins FROM line must be 'FROM ghcr.io/redcodeworks/octarine-bins-<dx|gx>@\${BINS_DIGEST} AS bins'"
-        fi
+        [[ ${#lists[@]} -gt 0 && -e "${lists[0]}" ]] || err "${d}/packages/*.txt missing"
     fi
     # package lists (required-/optional-<source>.txt as in octarine-bins, or the scaffold's dev.txt): one token per line
     for list in "${lists[@]}"; do

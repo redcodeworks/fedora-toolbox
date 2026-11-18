@@ -1,6 +1,6 @@
 #!/usr/bin/bash
 # Build the gaming toolbox: drop Terra so Fedora's Mesa is the only Mesa (x86_64 and i686 from the
-# same repo and version), then install the lists of the octarine-bins-gx image through its installer. Called from the Containerfile with the
+# same repo and version), then install packages/*.txt through install-packages.sh. Called from the Containerfile with the
 # build context mounted at /ctx. Fails loudly on any unavailable package.
 set -euo pipefail
 
@@ -34,15 +34,10 @@ type=rpm-md
 repo_gpgcheck=0
 REPO
 
-# (d) The package lists of the octarine-bins-gx image (mounted at /packages) through its installer: required-fedora.txt, then
-# required-negativo17.txt (Steam and the newer Mesa, codec and libva builds it pulls in), strict; then optional-fedora.txt, best effort. A missing
-# required package aborts the build. required-copr.txt (Sunshine) is for the gx OS image and is NOT installed here: the installer runs on a copy of the
-# lists without it. This script does its own cleanup (NO_CLEANUP=1).
-lists=$(mktemp -d)
-cp /packages/install.sh /packages/*.txt "${lists}/"
-rm -f "${lists}"/*-copr.txt
-PACKAGES_DIR="${lists}" NO_CLEANUP=1 bash "${lists}/install.sh"
-rm -rf "${lists}"
+# (d) The package lists of this image (packages/) through install-packages.sh: required-fedora.txt, then required-negativo17.txt
+# (Steam and the newer Mesa, codec and libva builds it pulls in), strict; then optional-fedora.txt, best effort. A missing required
+# package aborts the build. The cleanup at the end of this script is this script's own.
+bash /ctx/build_files/install-packages.sh
 
 # Record what Mesa the image ended up with (shows in the build log)
 rpm -qa --qf '%{NAME}.%{ARCH} %{VERSION}-%{RELEASE} %{VENDOR}\n' 'mesa-*' | sort

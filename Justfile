@@ -47,14 +47,13 @@ lint:
 new-image name:
     @.github/scripts/new-image.sh "{{ name }}"
 
-# Run the planning, promotion, push, scaffold, bins pin, stack, datastore and workflow tests
+# Run the planning, promotion, push, scaffold, stack, datastore and workflow tests
 [group('Image')]
 test:
     tests/plan-images.sh
     tests/promote-decision.sh
     tests/new-image.sh
     tests/dna-stack.sh
-    tests/bins-pins.sh
     tests/push-tags.sh
     tests/retry.sh
     tests/workflow-triggers.sh
@@ -70,11 +69,6 @@ check-stack-builds:
     for s in connect airflow superset; do
         podman build -t "localhost/dna-${s}:check" "dna-toolbox/stack/build/${s}"
     done
-
-# Move the pin of an octarine-bins image (dx: fedora-toolbox and dna-toolbox, gx: fedora-gaming) to its latest: resolves the digest, verifies it with keys/octarine-bins.pub, writes tag and digest
-[group('Image')]
-bump-bins kind:
-    @.github/scripts/bins-pins.sh bump "{{ kind }}"
 
 # Open the release pull request from testing into main. Pass true to also wait for the required checks and merge it
 [group('Release')]
