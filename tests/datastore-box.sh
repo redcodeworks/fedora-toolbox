@@ -6,8 +6,14 @@ src="${here}/.."
 d="${src}/datastore"
 pass=0
 failn=0
-ok() { pass=$((pass + 1)); echo "ok   $1"; }
-bad() { failn=$((failn + 1)); echo "FAIL $1"; }
+ok() {
+    pass=$((pass + 1))
+    echo "ok   $1"
+}
+bad() {
+    failn=$((failn + 1))
+    echo "FAIL $1"
+}
 tmp=$(mktemp -d)
 trap 'rm -rf "${tmp}"' EXIT
 

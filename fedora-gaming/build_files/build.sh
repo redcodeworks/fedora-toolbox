@@ -20,7 +20,7 @@ dnf5 -y distro-sync --refresh 'mesa*'
 
 # (c) Steam comes from negativo17 (repo id fedora-multimedia). This base does not configure it (the Universal Blue OS base does), so write the
 # same repository definition, DISABLED; the installer enables it for the negativo17 list only.
-cat > /etc/yum.repos.d/negativo17-fedora-multimedia.repo <<'REPO'
+cat >/etc/yum.repos.d/negativo17-fedora-multimedia.repo <<'REPO'
 [fedora-multimedia]
 name=negativo17 - Multimedia
 baseurl=https://negativo17.org/repos/multimedia/fedora-$releasever/$basearch/

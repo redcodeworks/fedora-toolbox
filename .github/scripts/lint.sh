@@ -10,7 +10,10 @@ source "${here}/images.sh"
 cd "${root}"
 
 fail=0
-err() { echo "lint: $*" >&2; fail=1; }
+err() {
+    echo "lint: $*" >&2
+    fail=1
+}
 
 shopt -s nullglob
 scripts=(.github/scripts/*.sh tests/*.sh ./*/build_files/*.sh ./*/tests/*.sh ./datastore-images/validate.sh ./datastore-images/check-bundle.sh ./datastore-images/lib/*.sh ./*/stack/bin/* ./*/bin/*)
@@ -80,5 +83,5 @@ dup_names=$(printf '%s\n' "${names[@]}" | sort | uniq -d)
 local_paths=$(grep -rIn --exclude-dir=.git -e '~/.con''fig' -e '/var/ho''me/' -e 'with-lo''ck.sh' . || true)
 [[ -z "${local_paths}" ]] || err "machine-specific paths found (remove or generalise):"$'\n'"${local_paths}"
 
-if (( fail )); then exit 1; fi
+if ((fail)); then exit 1; fi
 echo "lint ok (images: ${names[*]})"

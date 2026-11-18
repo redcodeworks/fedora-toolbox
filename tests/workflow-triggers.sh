@@ -5,7 +5,10 @@
 # Needs: bash, python3 with PyYAML. Run: tests/workflow-triggers.sh
 set -uo pipefail
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-if ! python3 -I -c 'import yaml' 2>/dev/null; then echo "SKIP: python3 has no PyYAML"; exit 0; fi
+if ! python3 -I -c 'import yaml' 2>/dev/null; then
+    echo "SKIP: python3 has no PyYAML"
+    exit 0
+fi
 python3 -I - "$here" <<'PY'
 import sys, yaml, pathlib
 root = pathlib.Path(sys.argv[1]); wf = root / ".github/workflows"

@@ -38,11 +38,19 @@ image_name() {
 image_desc() { _env_var "$1" IMAGE_DESC; }
 
 # IMAGE_KIND=list marks a data image (FROM scratch: the shared package list), "toolbox" is the default
-image_kind() { local k; k=$(_env_var "$1" IMAGE_KIND); echo "${k:-toolbox}"; }
+image_kind() {
+    local k
+    k=$(_env_var "$1" IMAGE_KIND)
+    echo "${k:-toolbox}"
+}
 
 # Build context directory, relative to the repository root (default: the image directory itself;
 # BUILD_CONTEXT=. makes the whole repository the context, the Containerfile then names its paths)
-image_context() { local c; c=$(_env_var "$1" BUILD_CONTEXT); echo "${c:-$1}"; }
+image_context() {
+    local c
+    c=$(_env_var "$1" BUILD_CONTEXT)
+    echo "${c:-$1}"
+}
 
 # Other top-level directories whose files belong to this image (EXTRA_PATHS, space separated): a change
 # there rebuilds this image and is never "another image's directory" for the promote decision
@@ -101,6 +109,9 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
         context) image_context "${2:?dir}" ;;
         data-files) image_data_files "${2:?dir}" ;;
         data-check) image_data_check "${2:?dir}" ;;
-        *) echo "usage: images.sh list|json|resolve <image>|context <dir>|data-files <dir>|data-check <dir>" >&2; exit 2 ;;
+        *)
+            echo "usage: images.sh list|json|resolve <image>|context <dir>|data-files <dir>|data-check <dir>" >&2
+            exit 2
+            ;;
     esac
 fi

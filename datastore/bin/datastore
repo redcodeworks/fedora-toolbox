@@ -21,7 +21,10 @@ services=(postgres valkey seaweedfs kafka)
 secret_names=(postgresql-password valkey-password seaweedfs-s3-config)
 declare -A port_of=([postgres]=5432 [valkey]=6379 [seaweedfs]=8333 [kafka]=9092)
 
-die() { echo "datastore: $*" >&2; exit 1; }
+die() {
+    echo "datastore: $*" >&2
+    exit 1
+}
 
 usage() {
     cat <<'EOF'
@@ -53,7 +56,12 @@ systemd_running() { [[ -d /run/systemd/system ]]; }
 as_root() { if [[ "$(id -u)" -eq 0 ]]; then "$@"; else sudo "$@"; fi; }
 
 secret_file() { echo "${secrets}/$1"; }
-read_secret() { local f; f=$(secret_file "$1"); [[ -f "${f}" ]] || die "no ${f}: run 'datastore setup' first"; head -n1 "${f}"; }
+read_secret() {
+    local f
+    f=$(secret_file "$1")
+    [[ -f "${f}" ]] || die "no ${f}: run 'datastore setup' first"
+    head -n1 "${f}"
+}
 
 # Resolve a service argument list into unit names (default all)
 want_units() {
@@ -108,7 +116,10 @@ make_secrets() {
 
 setup_postgres() {
     local d="${data}/postgres"
-    if [[ -f "${d}/PG_VERSION" ]]; then echo "postgres: data directory exists, left alone"; return; fi
+    if [[ -f "${d}/PG_VERSION" ]]; then
+        echo "postgres: data directory exists, left alone"
+        return
+    fi
     [[ -z "$(ls -A "${d}")" ]] || die "${d} is not empty and has no PG_VERSION: refusing to initialize over it"
     # en_US.UTF-8 is the locale of the postgres container image the data used to live in
     initdb -D "${d}" -U postgres -E UTF8 --locale=en_US.UTF-8 \
@@ -152,7 +163,10 @@ group.initial.rebalance.delay.ms=0
 auto.create.topics.enable=true
 log.dirs=${data}/kafka
 EOF
-    if [[ -f "${data}/kafka/meta.properties" ]]; then echo "kafka: data directory exists, left alone"; return; fi
+    if [[ -f "${data}/kafka/meta.properties" ]]; then
+        echo "kafka: data directory exists, left alone"
+        return
+    fi
     LOG_DIR="${data}/logs/kafka" /opt/kafka/bin/kafka-storage.sh format -t "$(/opt/kafka/bin/kafka-storage.sh random-uuid)" -c "${conf}/kafka.properties" >/dev/null
     echo "kafka: formatted ${data}/kafka"
 }
@@ -185,7 +199,10 @@ cmd_ctl() { # start|stop|restart|enable|disable [names]
     as_root systemctl "${verb}" "${units[@]}"
     for u in "${units[@]}"; do
         if [[ "${verb}" == start || "${verb}" == restart ]]; then
-            as_root systemctl is-active --quiet "${u}" || { echo "${u} is not active: datastore logs $(basename "${u#datastore-}" .service)"  >&2; return 1; }
+            as_root systemctl is-active --quiet "${u}" || {
+                echo "${u} is not active: datastore logs $(basename "${u#datastore-}" .service)" >&2
+                return 1
+            }
         fi
     done
 }
@@ -215,7 +232,11 @@ cmd_logs() {
 }
 
 cmd_psql() { PGPASSWORD=$(read_secret postgresql-password) exec psql -h /run/postgresql -U postgres "$@"; }
-cmd_valkey_cli() { local pw; pw=$(read_secret valkey-password); REDISCLI_AUTH="${pw}" VALKEYCLI_AUTH="${pw}" exec valkey-cli "$@"; }
+cmd_valkey_cli() {
+    local pw
+    pw=$(read_secret valkey-password)
+    REDISCLI_AUTH="${pw}" VALKEYCLI_AUTH="${pw}" exec valkey-cli "$@"
+}
 
 cmd_secrets() {
     local sub=${1:-list} n replace=() ok=0
@@ -256,7 +277,10 @@ cmd_backup() {
     mkdir -p "${dir}"
     chmod 700 "${dir}"
     as_root systemctl is-active --quiet datastore-postgres.service || die "PostgreSQL is not running: datastore start postgres"
-    (umask 077; PGPASSWORD=$(read_secret postgresql-password) pg_dumpall -h /run/postgresql -U postgres >"${dir}/postgres-${stamp}.sql")
+    (
+        umask 077
+        PGPASSWORD=$(read_secret postgresql-password) pg_dumpall -h /run/postgresql -U postgres >"${dir}/postgres-${stamp}.sql"
+    )
     echo "wrote ${dir}/postgres-${stamp}.sql (pg_dumpall: roles with password hashes, all databases; replication slots are not in it)"
     for s in valkey seaweedfs kafka; do
         u="datastore-${s}.service"
@@ -269,7 +293,10 @@ cmd_backup() {
     for name in valkey seaweed kafka; do
         d="${data}/${name}"
         [[ -d "${d}" ]] || continue
-        (umask 077; tar -C "${data}" -cf "${dir}/${name}-${stamp}.tar" "${name}")
+        (
+            umask 077
+            tar -C "${data}" -cf "${dir}/${name}-${stamp}.tar" "${name}"
+        )
         echo "wrote ${dir}/${name}-${stamp}.tar"
     done
     for s in "${running[@]}"; do as_root systemctl start "datastore-${s}.service"; done
@@ -296,7 +323,10 @@ cmd_restore() {
     fi
 }
 
-cmd_render() { render_units "${1:?usage: datastore render DIR}"; echo "rendered into ${1}"; }
+cmd_render() {
+    render_units "${1:?usage: datastore render DIR}"
+    echo "rendered into ${1}"
+}
 
 main() {
     local c=${1:-help}
@@ -313,7 +343,10 @@ main() {
         restore) cmd_restore "$@" ;;
         render) cmd_render "$@" ;;
         help | -h | --help) usage ;;
-        *) usage >&2; exit 2 ;;
+        *)
+            usage >&2
+            exit 2
+            ;;
     esac
 }
 main "$@"

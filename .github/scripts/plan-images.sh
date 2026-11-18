@@ -84,7 +84,7 @@ case "${event}" in
                 for p in "${roots[@]}"; do
                     [[ "${f}" == "${p}/"* ]] && hit=1
                 done
-                if (( hit )); then
+                if ((hit)); then
                     picked+=("${d}")
                     break
                 fi
@@ -92,5 +92,8 @@ case "${event}" in
         done
         json_for "${picked[@]}"
         ;;
-    *) echo "unknown event '${event}'" >&2; exit 1 ;;
+    *)
+        echo "unknown event '${event}'" >&2
+        exit 1
+        ;;
 esac

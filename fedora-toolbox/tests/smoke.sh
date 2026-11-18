@@ -4,7 +4,10 @@
 # Fails on the first missing piece.
 set -euo pipefail
 
-fail() { echo "SMOKE FAIL: $*" >&2; exit 1; }
+fail() {
+    echo "SMOKE FAIL: $*" >&2
+    exit 1
+}
 
 run() {
     local out
@@ -43,7 +46,7 @@ done
 # compile and link a small C program against libc and libm
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
-cat > "$tmp/t.c" <<'EOF'
+cat >"$tmp/t.c" <<'EOF'
 #include <stdio.h>
 #include <math.h>
 int main(void) { printf("%.0f\n", sqrt(16.0)); return 0; }

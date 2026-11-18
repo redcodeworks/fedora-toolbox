@@ -4,7 +4,10 @@
 # The runtime test (the real box with its own systemd) is tests/smoke-host.sh, which `just smoke` runs on the host.
 set -euo pipefail
 
-fail() { echo "SMOKE FAIL: $*" >&2; exit 1; }
+fail() {
+    echo "SMOKE FAIL: $*" >&2
+    exit 1
+}
 
 run() {
     local out

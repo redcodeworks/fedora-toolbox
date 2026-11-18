@@ -16,7 +16,11 @@ boxa="ds-smoke-a-${id}"
 boxb="ds-smoke-b-${id}"
 aliases=(--network-alias pgsql --network-alias postgresql --network-alias valkey --network-alias seaweedfs --network-alias kafka)
 
-fail() { echo "SMOKE FAIL: $*" >&2; dump_logs; exit 1; }
+fail() {
+    echo "SMOKE FAIL: $*" >&2
+    dump_logs
+    exit 1
+}
 dump_logs() {
     local b
     for b in "${boxa}" "${boxb}"; do
@@ -52,7 +56,10 @@ wait_for() { # box description command...: retry up to 3 minutes
     local box=$1 what=$2
     shift 2
     for _ in $(seq 1 90); do
-        if podman exec --user dsuser -e HOME=/home/dsuser "${box}" bash -c "$*" >/dev/null 2>&1; then echo "ok: ${what}"; return 0; fi
+        if podman exec --user dsuser -e HOME=/home/dsuser "${box}" bash -c "$*" >/dev/null 2>&1; then
+            echo "ok: ${what}"
+            return 0
+        fi
         sleep 2
     done
     fail "${what}"

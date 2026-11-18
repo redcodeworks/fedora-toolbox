@@ -4,7 +4,10 @@
 # Fails on the first missing piece.
 set -euo pipefail
 
-fail() { echo "SMOKE FAIL: $*" >&2; exit 1; }
+fail() {
+    echo "SMOKE FAIL: $*" >&2
+    exit 1
+}
 
 run() {
     local out

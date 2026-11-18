@@ -9,76 +9,111 @@ echo "ok   dna-stack static checks"
 # dna-toolbox: versions.env parses, the Java package matches DNA_JAVA_VERSION, downloads are pinned
 tb="${here}/dna-toolbox"
 # shellcheck source=/dev/null
-( set -a; . "${tb}/versions.env"; set +a
-  grep -qx "java-${DNA_JAVA_VERSION}-openjdk" "${tb}/packages/optional-fedora.txt" ) \
-    || { echo "FAIL optional.txt lacks java-<DNA_JAVA_VERSION>-openjdk" >&2; exit 1; }
+(
+    set -a
+    . "${tb}/versions.env"
+    set +a
+    grep -qx "java-${DNA_JAVA_VERSION}-openjdk" "${tb}/packages/optional-fedora.txt"
+) \
+    || {
+        echo "FAIL optional.txt lacks java-<DNA_JAVA_VERSION>-openjdk" >&2
+        exit 1
+    }
 while IFS='|' read -r name _ url sha _; do
     [[ -z "${name}" || "${name}" == \#* ]] && continue
-    [[ "${url}" == https://* && "${sha}" =~ ^[0-9a-f]{64}$ ]] || { echo "FAIL downloads.lock: ${name} is not pinned by https URL and sha256" >&2; exit 1; }
-done < "${tb}/downloads.lock"
+    [[ "${url}" == https://* && "${sha}" =~ ^[0-9a-f]{64}$ ]] || {
+        echo "FAIL downloads.lock: ${name} is not pinned by https URL and sha256" >&2
+        exit 1
+    }
+done <"${tb}/downloads.lock"
 echo "ok   dna-toolbox versions.env, java package and download pins"
 
 # up, down and remove: checklist defaults, dependency warnings, non-interactive paths. The host is
 # replaced by a stub (no runtime, no real host command is ever run).
 (
-    tmp=$(mktemp -d); trap 'rm -rf "${tmp}"' EXIT
+    tmp=$(mktemp -d)
+    trap 'rm -rf "${tmp}"' EXIT
     export DNA_STATE="${tmp}/state" DNA_QUADLET_DIR="${tmp}/q" DNA_STACK_ROOT="${here}/dna-toolbox/stack"
     # shellcheck source=/dev/null
     . "${here}/dna-toolbox/stack/bin/dna-stack"
     # shellcheck disable=SC2034  # stub called by the sourced script, which reads these globals
-    detect() { HOSTX=direct; RT=podman; MODE=quadlet; }
-    calls="${tmp}/calls"; running="${tmp}/running"; : > "${calls}"
+    detect() {
+        HOSTX=direct
+        RT=podman
+        MODE=quadlet
+    }
+    calls="${tmp}/calls"
+    running="${tmp}/running"
+    : >"${calls}"
     host() {
-        echo "$*" >> "${calls}"
+        echo "$*" >>"${calls}"
         case "$*" in
-            "systemctl --user is-active --quiet dna-"*) local all="$*"; local u=${all##* dna-}; grep -qx "${u%.service}" "${running}" ;;
+            "systemctl --user is-active --quiet dna-"*)
+                local all="$*"
+                local u=${all##* dna-}
+                grep -qx "${u%.service}" "${running}"
+                ;;
             *) return 0 ;;
         esac
     }
     mkdir -p "${DNA_STATE}" "${DNA_QUADLET_DIR}"
-    printf '%s\n' postgres seaweedfs lakekeeper trino > "${DNA_STATE}/selected"
-    t() { echo "FAIL $*" >&2; exit 1; }
-    o="" ; reset() { : > "${calls}"; }
+    printf '%s\n' postgres seaweedfs lakekeeper trino >"${DNA_STATE}/selected"
+    t() {
+        echo "FAIL $*" >&2
+        exit 1
+    }
+    o=""
+    reset() { : >"${calls}"; }
 
     # up with everything stopped: no terminal, no names, no --yes -> warning, checklist empty, nothing started
-    : > "${running}"; reset
+    : >"${running}"
+    reset
     o=$(cmd_up </dev/null 2>&1) || true
     grep -q 'WARNING: some services depend on others' <<<"${o}" || t "up: dependency warning missing"
     grep -q 'lakekeeper needs postgres, seaweedfs' <<<"${o}" || t "up: dependency map missing"
     grep -q 'dry run' <<<"${o}" || t "up: no dry-run message without a terminal"
     ! grep -q 'systemctl --user start' "${calls}" || t "up: started something by default"
     # up trino adds its dependencies and says so
-    reset; o=$(cmd_up trino </dev/null 2>&1)
+    reset
+    o=$(cmd_up trino </dev/null 2>&1)
     grep -q 'also starting the dependencies: postgres seaweedfs lakekeeper' <<<"${o}" || t "up: dependencies not announced"
     [[ $(grep -c 'systemctl --user start' "${calls}") -eq 4 ]] || t "up trino did not start four services"
 
     # down postgres while lakekeeper runs: dependents warning, dry run without --yes
-    printf '%s\n' postgres seaweedfs lakekeeper trino > "${running}"; reset
+    printf '%s\n' postgres seaweedfs lakekeeper trino >"${running}"
+    reset
     o=$(cmd_down postgres </dev/null 2>&1) || true
     grep -q 'WARNING: .*depend.* on postgres' <<<"${o}" || t "down: dependents warning missing"
     grep -q 'dry run' <<<"${o}" || t "down: not a dry run without --yes"
     ! grep -q 'systemctl --user stop' "${calls}" || t "down stopped a service without --yes"
     # with --yes only the named service is stopped (no silent cascade)
-    reset; o=$(cmd_down postgres --yes </dev/null 2>&1)
+    reset
+    o=$(cmd_down postgres --yes </dev/null 2>&1)
     [[ $(grep -c 'systemctl --user stop' "${calls}") -eq 1 ]] || t "down --yes cascaded or did nothing"
     grep -q 'stop dna-postgres.service' <<<"${o}" || t "down --yes did not stop postgres"
     # down with no names, no terminal, no --yes: checklist empty -> nothing stopped
-    reset; o=$(cmd_down </dev/null 2>&1) || true
+    reset
+    o=$(cmd_down </dev/null 2>&1) || true
     ! grep -q 'systemctl --user stop' "${calls}" || t "down stopped something by default"
     # naming a leaf service stops it without a dependents warning
-    reset; o=$(cmd_down trino --yes </dev/null 2>&1)
+    reset
+    o=$(cmd_down trino --yes </dev/null 2>&1)
     ! grep -q 'WARNING: .*depend' <<<"${o}" || t "down trino: unexpected dependents warning"
 
     # remove: dry run by default, dependents warning, nothing deleted
-    : > "${DNA_QUADLET_DIR}/dna-postgres.container"; printf '# Generated by dna-stack\n' > "${DNA_QUADLET_DIR}/dna-postgres.container"
-    reset; o=$(cmd_remove </dev/null 2>&1) || true
+    : >"${DNA_QUADLET_DIR}/dna-postgres.container"
+    printf '# Generated by dna-stack\n' >"${DNA_QUADLET_DIR}/dna-postgres.container"
+    reset
+    o=$(cmd_remove </dev/null 2>&1) || true
     grep -q 'dry run' <<<"${o}" || t "remove: not a dry run by default"
     [[ -f "${DNA_QUADLET_DIR}/dna-postgres.container" ]] || t "remove deleted a file in a dry run"
-    reset; o=$(cmd_remove postgres </dev/null 2>&1) || true
+    reset
+    o=$(cmd_remove postgres </dev/null 2>&1) || true
     grep -q 'WARNING: .*depend.* on postgres' <<<"${o}" || t "remove: dependents warning missing"
     [[ -f "${DNA_QUADLET_DIR}/dna-postgres.container" ]] || t "remove deleted postgres without --yes"
     # volumes are never deleted without a terminal (typed yes)
-    reset; cmd_remove postgres --yes --volumes </dev/null >/dev/null 2>&1 || true
+    reset
+    cmd_remove postgres --yes --volumes </dev/null >/dev/null 2>&1 || true
     ! grep -q 'volume rm' "${calls}" || t "remove deleted a volume without a typed yes"
     echo "ok   dna-stack up/down/remove checklist and dependency warnings"
 ) || exit 1
@@ -86,32 +121,48 @@ echo "ok   dna-toolbox versions.env, java package and download pins"
 # Local builds (Connect, Airflow, Superset): build contexts ship inside the toolbox, are staged to the state dir
 # and built on the host. The host runtime is a recording stub; nothing is built.
 (
-    tmp=$(mktemp -d); trap 'rm -rf "${tmp}"' EXIT
+    tmp=$(mktemp -d)
+    trap 'rm -rf "${tmp}"' EXIT
     export DNA_STATE="${tmp}/state" DNA_QUADLET_DIR="${tmp}/q" DNA_STACK_ROOT="${here}/dna-toolbox/stack"
     # shellcheck source=/dev/null
     . "${here}/dna-toolbox/stack/bin/dna-stack"
     # shellcheck disable=SC2034  # stub called by the sourced script, which reads these globals
-    detect() { HOSTX=direct; RT=podman; MODE=quadlet; }
-    calls="${tmp}/calls"; tags="${tmp}/tags"; : > "${calls}"; : > "${tags}"
+    detect() {
+        HOSTX=direct
+        RT=podman
+        MODE=quadlet
+    }
+    calls="${tmp}/calls"
+    tags="${tmp}/tags"
+    : >"${calls}"
+    : >"${tags}"
     host() {
-        echo "$*" >> "${calls}"
+        echo "$*" >>"${calls}"
         case "$1 $2" in
             "podman image")
                 case "$3" in
                     inspect) grep -qx "$4" "${tags}" ;;
-                    rm) grep -vx "$4" "${tags}" > "${tags}.n" || true; mv "${tags}.n" "${tags}" ;;
-                esac ;;
+                    rm)
+                        grep -vx "$4" "${tags}" >"${tags}.n" || true
+                        mv "${tags}.n" "${tags}"
+                        ;;
+                esac
+                ;;
             "podman build")
-                [[ -z "${FAIL_BUILD:-}" ]] || return 1       # a failed build writes no tag
-                echo "$4" >> "${tags}" ;;
+                [[ -z "${FAIL_BUILD:-}" ]] || return 1 # a failed build writes no tag
+                echo "$4" >>"${tags}"
+                ;;
             *) return 0 ;;
         esac
     }
-    t() { echo "FAIL $*" >&2; exit 1; }
-    reset() { : > "${calls}"; }
+    t() {
+        echo "FAIL $*" >&2
+        exit 1
+    }
+    reset() { : >"${calls}"; }
     mkdir -p "${DNA_STATE}" "${DNA_QUADLET_DIR}"
-    printf '%s\n' postgres kafka connect airflow superset > "${DNA_STATE}/selected"
-    : > /dev/null
+    printf '%s\n' postgres kafka connect airflow superset >"${DNA_STATE}/selected"
+    : >/dev/null
 
     # contexts exist in the shipped tree, and the old top-level image directories are gone
     for s in connect airflow superset; do
@@ -131,50 +182,61 @@ echo "ok   dna-toolbox versions.env, java package and download pins"
     [[ -f "${tmp}/state/build/connect/Containerfile" ]] || t "render did not stage the connect context"
 
     # up builds a missing image first, then starts; the context is staged under the state dir
-    reset; o=$(cmd_up connect </dev/null 2>&1)
+    reset
+    o=$(cmd_up connect </dev/null 2>&1)
     grep -qx "podman build -t localhost/dna-connect:local ${DNA_STATE}/build/connect" "${calls}" || t "up did not build connect"
     [[ -f "${DNA_STATE}/build/connect/pom.xml" ]] || t "build context not staged"
     grep -q 'needs network' <<<"${o}" || t "no network warning before the build"
-    b=$(grep -n 'podman build' "${calls}" | head -1 | cut -d: -f1); s=$(grep -n 'systemctl --user start dna-connect.service' "${calls}" | cut -d: -f1)
-    (( b < s )) || t "connect started before it was built"
+    b=$(grep -n 'podman build' "${calls}" | head -1 | cut -d: -f1)
+    s=$(grep -n 'systemctl --user start dna-connect.service' "${calls}" | cut -d: -f1)
+    ((b < s)) || t "connect started before it was built"
     # up again: the tag exists, nothing is built
-    reset; o=$(cmd_up connect </dev/null 2>&1)
+    reset
+    o=$(cmd_up connect </dev/null 2>&1)
     ! grep -q 'podman build' "${calls}" || t "rebuilt although the tag exists"
     grep -q 'already built' <<<"${o}" || t "no 'already built' message"
     # --rebuild forces a build without cache
-    reset; cmd_build connect --rebuild </dev/null >/dev/null 2>&1
+    reset
+    cmd_build connect --rebuild </dev/null >/dev/null 2>&1
     grep -q 'podman build -t localhost/dna-connect:local --no-cache' "${calls}" || t "--rebuild did not force a build"
 
     # build with no names and no terminal is a dry run; --yes builds everything set up
-    reset; o=$(cmd_build </dev/null 2>&1)
+    reset
+    o=$(cmd_build </dev/null 2>&1)
     grep -q 'dry run' <<<"${o}" || t "build without names or terminal is not a dry run"
     ! grep -q 'podman build' "${calls}" || t "dry run built something"
-    reset; cmd_build --yes </dev/null >/dev/null 2>&1
+    reset
+    cmd_build --yes </dev/null >/dev/null 2>&1
     [[ $(grep -c 'podman build' "${calls}") -eq 2 ]] || t "build --yes did not build the two missing images"
     # services without a context or not set up are refused
-    ( cmd_build postgres </dev/null ) >/dev/null 2>&1 && t "build accepted a registry service"
-    printf '%s\n' postgres > "${DNA_STATE}/selected"
-    ( cmd_build airflow </dev/null ) >/dev/null 2>&1 && t "build accepted a service that is not set up"
-    printf '%s\n' postgres kafka connect airflow superset > "${DNA_STATE}/selected"
+    (cmd_build postgres </dev/null) >/dev/null 2>&1 && t "build accepted a registry service"
+    printf '%s\n' postgres >"${DNA_STATE}/selected"
+    (cmd_build airflow </dev/null) >/dev/null 2>&1 && t "build accepted a service that is not set up"
+    printf '%s\n' postgres kafka connect airflow superset >"${DNA_STATE}/selected"
 
     # a failed build leaves no tag and up stops before starting the service
-    : > "${tags}"; reset
-    ( FAIL_BUILD=1 cmd_build superset </dev/null ) >"${tmp}/out" 2>&1 && t "failed build returned success"
+    : >"${tags}"
+    reset
+    (FAIL_BUILD=1 cmd_build superset </dev/null) >"${tmp}/out" 2>&1 && t "failed build returned success"
     grep -q 'safe to run it again' "${tmp}/out" || t "no re-run advice after a failed build"
     ! grep -qx 'localhost/dna-superset:local' "${tags}" || t "failed build left a tag"
-    reset; ( FAIL_BUILD=1 cmd_up superset </dev/null ) >/dev/null 2>&1 && t "up went on after a failed build"
+    reset
+    (FAIL_BUILD=1 cmd_up superset </dev/null) >/dev/null 2>&1 && t "up went on after a failed build"
     ! grep -q 'systemctl --user start dna-superset' "${calls}" || t "started a service without its image"
 
     # remove keeps the local image unless --images is given, and says so in the dry run
-    echo localhost/dna-connect:local > "${tags}"
-    printf '%s\n' '# Generated by dna-stack' > "${DNA_QUADLET_DIR}/dna-connect.container"
-    reset; o=$(cmd_remove connect </dev/null 2>&1)
+    echo localhost/dna-connect:local >"${tags}"
+    printf '%s\n' '# Generated by dna-stack' >"${DNA_QUADLET_DIR}/dna-connect.container"
+    reset
+    o=$(cmd_remove connect </dev/null 2>&1)
     grep -q 'are kept; add --images' <<<"${o}" || t "remove dry run does not mention the kept image"
-    reset; cmd_remove connect --yes </dev/null >/dev/null 2>&1
+    reset
+    cmd_remove connect --yes </dev/null >/dev/null 2>&1
     ! grep -q 'image rm' "${calls}" || t "remove deleted the image without --images"
-    printf '%s\n' postgres kafka connect > "${DNA_STATE}/selected"
-    printf '%s\n' '# Generated by dna-stack' > "${DNA_QUADLET_DIR}/dna-connect.container"
-    reset; o=$(cmd_remove connect --yes --images </dev/null 2>&1)
+    printf '%s\n' postgres kafka connect >"${DNA_STATE}/selected"
+    printf '%s\n' '# Generated by dna-stack' >"${DNA_QUADLET_DIR}/dna-connect.container"
+    reset
+    o=$(cmd_remove connect --yes --images </dev/null 2>&1)
     grep -q 'image rm localhost/dna-connect:local' "${calls}" || t "remove --images did not delete the image"
     grep -q 'locally built images: localhost/dna-connect:local' <<<"${o}" || t "remove does not say which image it deletes"
     echo "ok   dna-stack local builds (stubbed runtime)"
@@ -182,36 +244,54 @@ echo "ok   dna-toolbox versions.env, java package and download pins"
 
 # check rejects a base image without a digest and a secret in a context (on a copy of the stack)
 (
-    tmp=$(mktemp -d); trap 'rm -rf "${tmp}"' EXIT
+    tmp=$(mktemp -d)
+    trap 'rm -rf "${tmp}"' EXIT
     cp -r "${here}/dna-toolbox/stack" "${tmp}/stack"
     # strip the digest from the first pinned FROM of the file under test, whatever image and tag it names today
-    grep -qE '^FROM [^ @]+@sha256:[0-9a-f]+' "${tmp}/stack/build/superset/Containerfile" || { echo "FAIL superset Containerfile has no digest-pinned FROM to strip" >&2; exit 1; }
+    grep -qE '^FROM [^ @]+@sha256:[0-9a-f]+' "${tmp}/stack/build/superset/Containerfile" || {
+        echo "FAIL superset Containerfile has no digest-pinned FROM to strip" >&2
+        exit 1
+    }
     sed -i -E '0,/^FROM [^ @]+@sha256:[0-9a-f]+/s/^(FROM [^ @]+)@sha256:[0-9a-f]+/\1/' "${tmp}/stack/build/superset/Containerfile"
-    ! DNA_STACK_ROOT="${tmp}/stack" "${tmp}/stack/bin/dna-stack" check >/dev/null 2>&1 || { echo "FAIL check accepted an undigested base" >&2; exit 1; }
+    ! DNA_STACK_ROOT="${tmp}/stack" "${tmp}/stack/bin/dna-stack" check >/dev/null 2>&1 || {
+        echo "FAIL check accepted an undigested base" >&2
+        exit 1
+    }
     cp "${here}/dna-toolbox/stack/build/superset/Containerfile" "${tmp}/stack/build/superset/Containerfile"
-    echo 'ENV API_TOKEN=abc123' >> "${tmp}/stack/build/superset/Containerfile"
-    ! DNA_STACK_ROOT="${tmp}/stack" "${tmp}/stack/bin/dna-stack" check >/dev/null 2>&1 || { echo "FAIL check accepted a secret in a context" >&2; exit 1; }
+    echo 'ENV API_TOKEN=abc123' >>"${tmp}/stack/build/superset/Containerfile"
+    ! DNA_STACK_ROOT="${tmp}/stack" "${tmp}/stack/bin/dna-stack" check >/dev/null 2>&1 || {
+        echo "FAIL check accepted a secret in a context" >&2
+        exit 1
+    }
     echo "ok   dna-stack check rejects undigested bases and secrets in build contexts"
 ) || exit 1
 
 # nothing refers to the removed published images
 stale=$(grep -rInE 'ghcr\.io/redcodeworks/dna-(connect|airflow|superset)|^\| \[`dna-(connect|airflow|superset)`' "${here}" \
     --exclude-dir=.git --exclude=CLAUDE.md --exclude=CLAUDE.local.md --exclude=dna-stack.sh || true)
-[[ -z "${stale}" ]] || { echo "FAIL references to removed images:"$'\n'"${stale}" >&2; exit 1; }
+[[ -z "${stale}" ]] || {
+    echo "FAIL references to removed images:"$'\n'"${stale}" >&2
+    exit 1
+}
 echo "ok   no references to the removed dna-connect/airflow/superset images"
 
 # dna-gpu: ROCm and CUDA on demand inside the box, with stubbed dnf, rpm, distrobox-export, a fake os-release and
 # containerenv, and a fake file root. Nothing is installed.
 (
-    tmp=$(mktemp -d); trap 'rm -rf "${tmp}"' EXIT
+    tmp=$(mktemp -d)
+    trap 'rm -rf "${tmp}"' EXIT
     gpu="${here}/dna-toolbox/bin/dna-gpu"
-    bin="${tmp}/bin"; mkdir -p "${bin}" "${tmp}/home/.local/bin" "${tmp}/repos" "${tmp}/root/usr/bin" "${tmp}/root/usr/local/cuda-13.5/bin" "${tmp}/root/usr/local/cuda/bin"
+    bin="${tmp}/bin"
+    mkdir -p "${bin}" "${tmp}/home/.local/bin" "${tmp}/repos" "${tmp}/root/usr/bin" "${tmp}/root/usr/local/cuda-13.5/bin" "${tmp}/root/usr/local/cuda/bin"
     for f in usr/bin/rocminfo usr/bin/rocm_agent_enumerator usr/bin/rocm-smi usr/bin/hipcc usr/bin/amd-smi usr/bin/rocm-clinfo usr/local/cuda-13.5/bin/nvcc usr/local/cuda/bin/nvcc; do
-        : > "${tmp}/root/${f}"; chmod +x "${tmp}/root/${f}"
+        : >"${tmp}/root/${f}"
+        chmod +x "${tmp}/root/${f}"
     done
-    calls="${tmp}/calls"; : > "${calls}"
-    printf 'VERSION_ID=45\n' > "${tmp}/os-release"; : > "${tmp}/containerenv"
-    cat > "${bin}/dnf" <<STUB
+    calls="${tmp}/calls"
+    : >"${calls}"
+    printf 'VERSION_ID=45\n' >"${tmp}/os-release"
+    : >"${tmp}/containerenv"
+    cat >"${bin}/dnf" <<STUB
 #!/usr/bin/env bash
 echo "dnf \$*" >> "${calls}"
 case "\$1" in
@@ -226,7 +306,7 @@ case "\$1" in
 esac
 exit 0
 STUB
-    cat > "${bin}/rpm" <<STUB
+    cat >"${bin}/rpm" <<STUB
 #!/usr/bin/env bash
 case "\$1" in
   -q) grep -qx "\$2" "${tmp}/installed" 2>/dev/null ;;
@@ -236,7 +316,7 @@ case "\$1" in
   -qa) case "\$*" in *cuda-toolkit*) grep '^cuda-toolkit' "${tmp}/installed" 2>/dev/null ;; *) grep nvcc "${tmp}/installed" 2>/dev/null ;; esac; true ;;
 esac
 STUB
-    cat > "${bin}/distrobox-export" <<STUB
+    cat >"${bin}/distrobox-export" <<STUB
 #!/usr/bin/env bash
 echo "distrobox-export \$*" >> "${calls}"
 bin=""; del=0
@@ -244,7 +324,10 @@ while (( \$# )); do case "\$1" in --bin) bin=\$2; shift ;; --delete) del=1 ;; es
 if (( del )); then rm -f "${tmp}/home/.local/bin/\$(basename "\$bin")"; else printf '# distrobox_binary\n' > "${tmp}/home/.local/bin/\$(basename "\$bin")"; fi
 STUB
     chmod +x "${bin}"/*
-    t() { echo "FAIL $*" >&2; exit 1; }
+    t() {
+        echo "FAIL $*" >&2
+        exit 1
+    }
     run() { env PATH="${bin}:${PATH}" HOME="${tmp}/home" DNA_GPU_STATE="${tmp}/state" DNA_GPU_EXPORT_PATH="${tmp}/home/.local/bin" DNA_GPU_ROOT="${tmp}/root" \
         DNA_GPU_OS_RELEASE="${tmp}/os-release" DNA_GPU_CONTAINERENV="${tmp}/containerenv" DNA_GPU_REPO_DIR="${tmp}/repos" DNA_GPU_SUDO= DNA_GPU_PICKER=plain "$@"; }
 
@@ -252,13 +335,16 @@ STUB
     o=$(run env DNA_GPU_CONTAINERENV="${tmp}/nope" CONTAINER_ID= "${gpu}" rocm --yes 2>&1) && t "ran on the host"
     grep -q 'distrobox enter dna-toolbox -- dna-gpu rocm' <<<"${o}" || t "no host message"
     # no arguments and no terminal: usage, no menu; no terminal and no --yes: dry run
-    o=$(run "${gpu}" </dev/null 2>&1); grep -q 'dna-gpu rocm' <<<"${o}" || t "no usage without a terminal"
-    : > "${calls}"; o=$(run "${gpu}" rocm </dev/null 2>&1)
+    o=$(run "${gpu}" </dev/null 2>&1)
+    grep -q 'dna-gpu rocm' <<<"${o}" || t "no usage without a terminal"
+    : >"${calls}"
+    o=$(run "${gpu}" rocm </dev/null 2>&1)
     grep -q 'dry run' <<<"${o}" || t "rocm without --yes and terminal is not a dry run"
     ! grep -q 'dnf install' "${calls}" || t "dry run installed"
 
     # rocm --yes: the base set only (add-ons default off, no menu), then the discovered binaries are exported
-    : > "${calls}"; run "${gpu}" rocm --yes </dev/null >/dev/null 2>&1
+    : >"${calls}"
+    run "${gpu}" rocm --yes </dev/null >/dev/null 2>&1
     grep -q 'dnf install -y rocm-hip rocminfo rocm-opencl rocm-smi amdsmi hipcc rocm-clinfo' "${calls}" || t "rocm base set not installed: $(cat "${calls}")"
     ! grep -qE 'ollama-rocm|llama-cpp|python3-torch' "${calls}" || t "an add-on was installed by default"
     for b in rocminfo rocm_agent_enumerator rocm-smi hipcc amd-smi rocm-clinfo; do
@@ -266,38 +352,46 @@ STUB
     done
     ! grep -q '/usr/share/doc' "${calls}" || t "a non-binary was exported"
     # idempotent: a second run installs nothing new
-    : > "${calls}"; o=$(run "${gpu}" rocm --yes </dev/null 2>&1)
+    : >"${calls}"
+    o=$(run "${gpu}" rocm --yes </dev/null 2>&1)
     ! grep -q 'dnf install' "${calls}" || t "second run installed again"
     grep -q 'already installed' <<<"${o}" || t "no 'already installed' message"
     # status lists wrappers
-    o=$(run "${gpu}" status 2>&1); grep -q 'rocm: rocminfo: wrapper present, binary in box yes' <<<"${o}" || t "status lacks the wrapper line"
+    o=$(run "${gpu}" status 2>&1)
+    grep -q 'rocm: rocminfo: wrapper present, binary in box yes' <<<"${o}" || t "status lacks the wrapper line"
 
     # remove: dry run without terminal, then --yes deletes the wrappers it created and removes the packages
-    : > "${calls}"; o=$(run "${gpu}" remove rocm </dev/null 2>&1)
+    : >"${calls}"
+    o=$(run "${gpu}" remove rocm </dev/null 2>&1)
     grep -q 'dry run' <<<"${o}" || t "remove is not a dry run"
     ! grep -qE 'dnf remove|--delete' "${calls}" || t "dry-run remove changed something"
-    : > "${calls}"; run "${gpu}" remove rocm --yes </dev/null >/dev/null 2>&1
+    : >"${calls}"
+    run "${gpu}" remove rocm --yes </dev/null >/dev/null 2>&1
     grep -q 'distrobox-export --bin /usr/bin/rocminfo --export-path .* --delete' "${calls}" || t "remove did not delete the wrapper"
     grep -q 'dnf remove -y' "${calls}" || t "remove did not run dnf remove"
     [[ ! -e "${tmp}/home/.local/bin/rocminfo" ]] || t "wrapper still present"
 
     # add-on menu on a (faked) terminal: every question defaults to no; answering y picks only that one
-    rm -f "${tmp}/installed"; : > "${calls}"
+    rm -f "${tmp}/installed"
+    : >"${calls}"
     printf "n\nn\nn\nn\ny\n" | run env DNA_GPU_FORCE_TTY=1 "${gpu}" rocm >"${tmp}/menu.out" 2>&1
     ! grep -qE 'llama-cpp|ollama-rocm|python3-torch|hip-devel' "${calls}" || t "an add-on was installed with all answers no"
     grep -q "dnf install .*rocminfo" "${calls}" || t "base set missing after the menu: $(cat "${tmp}/menu.out")"
-    rm -f "${tmp}/installed"; : > "${calls}"
+    rm -f "${tmp}/installed"
+    : >"${calls}"
     printf 'n\nn\ny\nn\ny\n' | run env DNA_GPU_FORCE_TTY=1 "${gpu}" rocm >/dev/null 2>&1
     grep -q 'llama-cpp' "${calls}" || t "the chosen add-on was not installed"
     ! grep -qE 'ollama-rocm|python3-torch' "${calls}" || t "an unchosen add-on was installed"
     # missing -devel packages are skipped, not fatal
-    rm -f "${tmp}/installed"; : > "${calls}"
+    rm -f "${tmp}/installed"
+    : >"${calls}"
     o=$(run "${gpu}" rocm --yes --addons devel </dev/null 2>&1)
     grep -q 'rocm-hip-devel is not available' <<<"${o}" || t "missing devel package not reported"
     ! grep -q 'rocm-hip-devel' <(grep 'dnf install' "${calls}") || t "an unavailable package was passed to dnf install"
 
     # cuda: repo URL from VERSION_ID, out-of-tree warning, key URL, missing nvidia-smi message, nvcc exported
-    rm -f "${tmp}/installed"; : > "${calls}"
+    rm -f "${tmp}/installed"
+    : >"${calls}"
     o=$(run "${gpu}" cuda --yes </dev/null 2>&1)
     grep -q 'dnf config-manager addrepo --from-repofile=https://developer.download.nvidia.com/compute/cuda/repos/fedora45/x86_64/cuda-fedora45.repo' "${calls}" || t "repo URL not built from VERSION_ID"
     grep -q 'OUT-OF-TREE' <<<"${o}" || t "no out-of-tree warning"
@@ -308,9 +402,11 @@ STUB
     [[ $(grep -c 'distrobox-export --bin .*/nvcc' "${calls}") -eq 1 ]] || t "nvcc not exported exactly once"
     grep -q 'distrobox-export --bin /usr/local/cuda/bin/nvcc' "${calls}" || t "the /usr/local/cuda symlink path is not preferred"
     # without a terminal and without --yes nothing is added; remove cuda deletes the repo file it created
-    : > "${calls}"; run "${gpu}" cuda </dev/null >/dev/null 2>&1
+    : >"${calls}"
+    run "${gpu}" cuda </dev/null >/dev/null 2>&1
     ! grep -q 'dnf' "${calls}" || t "cuda dry run touched dnf"
-    : > "${calls}"; run "${gpu}" remove cuda --yes </dev/null >/dev/null 2>&1
+    : >"${calls}"
+    run "${gpu}" remove cuda --yes </dev/null >/dev/null 2>&1
     grep -q 'dnf remove -y cuda-toolkit' "${calls}" || t "cuda packages not removed"
     [[ ! -e "${tmp}/repos/cuda-fedora45.repo" ]] || t "the repo file dna-gpu created was not removed"
     echo "ok   dna-gpu rocm and cuda profiles (stubbed dnf, rpm, distrobox-export)"
@@ -318,13 +414,19 @@ STUB
 
 # Architecture: x86_64 only. A stubbed uname; on aarch64 dna-gpu stops before any dnf, rpm or distrobox-export call.
 (
-    tmp=$(mktemp -d); trap 'rm -rf "${tmp}"' EXIT
-    mkdir -p "${tmp}/bin"; calls="${tmp}/calls"; : > "${calls}"
-    for c in dnf rpm distrobox-export; do printf '#!/usr/bin/env bash\necho "%s $*" >> "%s"\n' "${c}" "${calls}" > "${tmp}/bin/${c}"; done
-    printf '#!/usr/bin/env bash\necho aarch64\n' > "${tmp}/bin/uname"
+    tmp=$(mktemp -d)
+    trap 'rm -rf "${tmp}"' EXIT
+    mkdir -p "${tmp}/bin"
+    calls="${tmp}/calls"
+    : >"${calls}"
+    for c in dnf rpm distrobox-export; do printf '#!/usr/bin/env bash\necho "%s $*" >> "%s"\n' "${c}" "${calls}" >"${tmp}/bin/${c}"; done
+    printf '#!/usr/bin/env bash\necho aarch64\n' >"${tmp}/bin/uname"
     chmod +x "${tmp}/bin"/*
-    : > "${tmp}/containerenv"
-    t() { echo "FAIL $*" >&2; exit 1; }
+    : >"${tmp}/containerenv"
+    t() {
+        echo "FAIL $*" >&2
+        exit 1
+    }
     arm() { env PATH="${tmp}/bin:${PATH}" HOME="${tmp}/home" DNA_GPU_STATE="${tmp}/state" DNA_GPU_CONTAINERENV="${tmp}/containerenv" DNA_GPU_PICKER=plain "$@"; }
     for prof in rocm cuda; do
         o=$(arm "${here}/dna-toolbox/bin/dna-gpu" "${prof}" --yes </dev/null 2>&1) && t "dna-gpu ${prof} succeeded on aarch64"
@@ -332,8 +434,10 @@ STUB
         grep -q 'Apple GPUs' <<<"${o}" || t "no reason given for ${prof}"
     done
     [[ ! -s "${calls}" ]] || t "dnf, rpm or distrobox-export was called on aarch64: $(cat "${calls}")"
-    o=$(arm "${here}/dna-toolbox/bin/dna-gpu" help </dev/null); grep -q 'dna-gpu rocm' <<<"${o}" || t "help failed on aarch64"
-    o=$(arm "${here}/dna-toolbox/bin/dna-gpu" status </dev/null 2>&1); grep -q 'architecture: aarch64 (unsupported' <<<"${o}" || t "status does not print the architecture"
+    o=$(arm "${here}/dna-toolbox/bin/dna-gpu" help </dev/null)
+    grep -q 'dna-gpu rocm' <<<"${o}" || t "help failed on aarch64"
+    o=$(arm "${here}/dna-toolbox/bin/dna-gpu" status </dev/null 2>&1)
+    grep -q 'architecture: aarch64 (unsupported' <<<"${o}" || t "status does not print the architecture"
     o=$(arm env DNA_VERSIONS_FILE="${here}/dna-toolbox/versions.env" DNA_DATA_DIR="${tmp}/data" "${here}/dna-toolbox/bin/dna-doctor" 2>&1 </dev/null || true)
     grep -q 'architecture: aarch64' <<<"${o}" && grep -q 'x86_64 builds' <<<"${o}" || t "dna-doctor lacks the architecture notice"
     echo "ok   architecture checks (aarch64 stops dna-gpu before any package call)"

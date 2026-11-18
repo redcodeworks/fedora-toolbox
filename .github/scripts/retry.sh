@@ -10,12 +10,15 @@
 set -uo pipefail
 tries="${RETRY_TRIES:-8}"
 delay="${RETRY_DELAY:-8}"
-[[ $# -ge 1 ]] || { echo "usage: retry.sh <command> [args...]" >&2; exit 2; }
+[[ $# -ge 1 ]] || {
+    echo "usage: retry.sh <command> [args...]" >&2
+    exit 2
+}
 n=1
 while true; do
     "$@" && exit 0
     status=$?
-    if (( n >= tries )); then
+    if ((n >= tries)); then
         echo "retry.sh: '$1' still failing after ${n} attempts (exit ${status})" >&2
         exit "${status}"
     fi

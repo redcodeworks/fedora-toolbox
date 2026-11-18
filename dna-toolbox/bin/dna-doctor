@@ -6,11 +6,15 @@ set -uo pipefail
 source "${DNA_VERSIONS_FILE:-/usr/share/dna-toolbox/versions.env}"
 DATA=${DNA_DATA_DIR:-${XDG_DATA_HOME:-${HOME}/.local/share}/dna-toolbox}
 VENV=${DNA_VENV:-${DATA}/venv-py${DNA_PYTHON_VERSION}}
-strict=0; [[ "${1:-}" == "--strict" ]] && strict=1
+strict=0
+[[ "${1:-}" == "--strict" ]] && strict=1
 bad=0
 ok() { printf 'ok    %s\n' "$*"; }
 warn() { printf 'warn  %s\n' "$*"; }
-fail() { printf 'FAIL  %s\n' "$*"; bad=1; }
+fail() {
+    printf 'FAIL  %s\n' "$*"
+    bad=1
+}
 
 echo "== pins: DBR ${DNA_DBR_VERSION}, Spark ${DNA_SPARK_VERSION}, Scala ${DNA_SCALA_VERSION}, Java ${DNA_JAVA_VERSION}, Python ${DNA_PYTHON_VERSION}, Hadoop ${DNA_HADOOP_VERSION}, Delta ${DNA_DELTA_VERSION}"
 
@@ -23,8 +27,10 @@ for dev in /dev/kfd /dev/dri; do
     [[ -e "${dev}" ]] && ok "${dev} is visible" || warn "${dev} is not visible (fine for NVIDIA or CPU-only; for AMD the box needs the GPU devices)"
 done
 if command -v rocminfo >/dev/null; then
-    if rocminfo 2>/dev/null | grep -q 'gfx1201'; then ok "rocminfo lists gfx1201 (RX 9070 XT)"
-    elif rocminfo 2>/dev/null | grep -qE 'gfx[0-9a-f]+'; then ok "rocminfo lists: $(rocminfo 2>/dev/null | grep -oE 'gfx[0-9a-f]+' | sort -u | tr '\n' ' ')"
+    if rocminfo 2>/dev/null | grep -q 'gfx1201'; then
+        ok "rocminfo lists gfx1201 (RX 9070 XT)"
+    elif rocminfo 2>/dev/null | grep -qE 'gfx[0-9a-f]+'; then
+        ok "rocminfo lists: $(rocminfo 2>/dev/null | grep -oE 'gfx[0-9a-f]+' | sort -u | tr '\n' ' ')"
     else warn "rocminfo shows no GPU agent (no access to /dev/kfd, or no supported GPU)"; fi
 else warn "rocminfo not installed (optional: dna-gpu rocm)"; fi
 if command -v nvidia-smi >/dev/null; then
@@ -67,5 +73,5 @@ for p in 5432 8333 8181 8080; do
     port=$((p + off))
     if (echo >/dev/tcp/127.0.0.1/"${port}") 2>/dev/null; then ok "stack port ${port} answers"; else warn "nothing on stack port ${port} (dna-stack up)"; fi
 done
-(( strict && bad )) && exit 1
+((strict && bad)) && exit 1
 exit 0

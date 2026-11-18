@@ -8,8 +8,14 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 src="${here}/.."
 pass=0
 failn=0
-ok() { pass=$((pass + 1)); echo "ok   $1"; }
-bad() { failn=$((failn + 1)); echo "FAIL $1"; }
+ok() {
+    pass=$((pass + 1))
+    echo "ok   $1"
+}
+bad() {
+    failn=$((failn + 1))
+    echo "FAIL $1"
+}
 
 tmp=$(mktemp -d)
 trap 'rm -rf "${tmp}"' EXIT
@@ -27,16 +33,17 @@ if grep -q '^FROM ghcr.io/ublue-os/fedora-toolbox:latest' "${copy}/demo-box/Cont
 if grep -rIiE 'bootc|ostree|kernel|iso|disk' "${copy}/demo-box" >/dev/null; then bad "scaffold mentions OS-image parts"; else ok "scaffold has no bootc/ostree/kernel/disk/ISO parts"; fi
 
 if REPO_ROOT="${copy}" "${copy}/.github/scripts/lint.sh" >/dev/null 2>&1; then ok "scaffold passes lint"; else
-    bad "scaffold fails lint:"; REPO_ROOT="${copy}" "${copy}/.github/scripts/lint.sh" 2>&1 | sed 's/^/     /'
+    bad "scaffold fails lint:"
+    REPO_ROOT="${copy}" "${copy}/.github/scripts/lint.sh" 2>&1 | sed 's/^/     /'
 fi
 if "${copy}/.github/scripts/new-image.sh" demo-box >/dev/null 2>&1; then bad "scaffolding an existing name should fail"; else ok "refuses an existing name"; fi
 if "${copy}/.github/scripts/new-image.sh" "Bad Name" >/dev/null 2>&1; then bad "bad name accepted"; else ok "refuses an invalid name"; fi
 if REPO_ROOT="${copy}" "${copy}/.github/scripts/images.sh" list | cut -f2 | grep -qx demo-box; then ok "image name equals directory name"; else bad "image list wrong"; fi
 
 # An OS-image part in a toolbox directory must fail lint
-echo 'RUN bootc container lint' >> "${copy}/demo-box/Containerfile"
+echo 'RUN bootc container lint' >>"${copy}/demo-box/Containerfile"
 if REPO_ROOT="${copy}" "${copy}/.github/scripts/lint.sh" >/dev/null 2>&1; then bad "lint accepted a bootc line"; else ok "lint rejects OS-image parts"; fi
 
 echo
 echo "${pass} passed, ${failn} failed"
-(( failn == 0 ))
+((failn == 0))

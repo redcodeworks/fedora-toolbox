@@ -8,21 +8,27 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 src="${here}/.."
 pass=0
 failn=0
-ok() { pass=$((pass + 1)); echo "ok   $1"; }
-bad() { failn=$((failn + 1)); echo "FAIL $1"; }
+ok() {
+    pass=$((pass + 1))
+    echo "ok   $1"
+}
+bad() {
+    failn=$((failn + 1))
+    echo "FAIL $1"
+}
 
 tmp=$(mktemp -d)
 trap 'rm -rf "${tmp}"' EXIT
 repo="${tmp}/repo"
 mkdir -p "${repo}/.github/scripts" "${repo}/alpha" "${repo}/beta" "${repo}/docs"
 cp "${src}/.github/scripts/images.sh" "${src}/.github/scripts/plan-images.sh" "${repo}/.github/scripts/"
-echo "FROM scratch" > "${repo}/alpha/Containerfile"
-echo "FROM scratch" > "${repo}/beta/Containerfile"
-echo 'IMAGE_NAME=beta-image' > "${repo}/beta/image.env"
-echo docs > "${repo}/docs/a.md"
-echo readme > "${repo}/README.md"
-echo just > "${repo}/Justfile"
-echo '{}' > "${repo}/.github/renovate.json5"
+echo "FROM scratch" >"${repo}/alpha/Containerfile"
+echo "FROM scratch" >"${repo}/beta/Containerfile"
+echo 'IMAGE_NAME=beta-image' >"${repo}/beta/image.env"
+echo docs >"${repo}/docs/a.md"
+echo readme >"${repo}/README.md"
+echo just >"${repo}/Justfile"
+echo '{}' >"${repo}/.github/renovate.json5"
 plan="${repo}/.github/scripts/plan-images.sh"
 
 g() { git -C "${repo}" -c user.name=t -c user.email=t@example.invalid "$@"; }
@@ -33,7 +39,7 @@ base=$(g rev-parse HEAD)
 
 commit_change() { # file -> prints the new commit sha, from the current HEAD
     mkdir -p "$(dirname "${repo}/$1")"
-    echo "$RANDOM" >> "${repo}/$1"
+    echo "$RANDOM" >>"${repo}/$1"
     g add -A
     g commit -q -m "change $1"
     g rev-parse HEAD
@@ -97,9 +103,9 @@ names "ERROR" "workflow_dispatch with unknown image fails" workflow_dispatch "" 
 names "ERROR" "unknown event fails" release "" ""
 
 # IMAGE_SCHEDULE=false keeps an image out of the weekly schedule only; EXTRA_PATHS and BUILD_CONTEXT
-printf 'IMAGE_SCHEDULE=false\n' >> "${repo}/beta/image.env"
+printf 'IMAGE_SCHEDULE=false\n' >>"${repo}/beta/image.env"
 mkdir -p "${repo}/shared"
-printf 'IMAGE_NAME=alpha\nEXTRA_PATHS=shared other\nBUILD_CONTEXT=.\n' > "${repo}/alpha/image.env"
+printf 'IMAGE_NAME=alpha\nEXTRA_PATHS=shared other\nBUILD_CONTEXT=.\n' >"${repo}/alpha/image.env"
 g add -A
 g commit -q -m "image.env settings"
 c9b=$(g rev-parse HEAD)
@@ -137,4 +143,4 @@ esac
 
 echo
 echo "${pass} passed, ${failn} failed"
-(( failn == 0 ))
+((failn == 0))

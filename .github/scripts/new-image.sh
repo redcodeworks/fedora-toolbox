@@ -11,13 +11,19 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 source "${here}/images.sh"
 
 name="${1:?usage: new-image.sh <name>}"
-[[ "${name}" =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "name must be lowercase letters, digits and dashes" >&2; exit 1; }
+[[ "${name}" =~ ^[a-z0-9][a-z0-9-]*$ ]] || {
+    echo "name must be lowercase letters, digits and dashes" >&2
+    exit 1
+}
 dir="${root}/${name}"
-[[ ! -e "${dir}" ]] || { echo "${name} already exists" >&2; exit 1; }
+[[ ! -e "${dir}" ]] || {
+    echo "${name} already exists" >&2
+    exit 1
+}
 
 mkdir -p "${dir}/build_files" "${dir}/packages" "${dir}/tests"
 
-cat > "${dir}/Containerfile" <<EOF
+cat >"${dir}/Containerfile" <<EOF
 # Build context is mounted, not copied into the final image
 FROM scratch AS ctx
 COPY build_files /build_files
@@ -35,7 +41,7 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \\
     bash /ctx/build_files/build.sh
 EOF
 
-cat > "${dir}/build_files/build.sh" <<'EOF'
+cat >"${dir}/build_files/build.sh" <<'EOF'
 #!/usr/bin/bash
 # Install packages/dev.txt into the image. Called from the Containerfile with the build context
 # mounted at /ctx. Fails loudly on any unavailable package.
@@ -62,14 +68,14 @@ rm -rf /var/cache/libdnf5 /var/cache/dnf /var/log/dnf5.log* /var/log/dnf.log* \
     /root/.ssh /root/.viminfo /root/.cache /root/.local/share/wget /root/.wget-hsts 2>/dev/null || true
 EOF
 
-cat > "${dir}/packages/dev.txt" <<'EOF'
+cat >"${dir}/packages/dev.txt" <<'EOF'
 # One package or @group per line; blank lines and #-comments are ignored.
 # Official Fedora packages only (plus whatever the base already configures).
 # A package that cannot be installed fails the build.
 make
 EOF
 
-cat > "${dir}/tests/smoke.sh" <<'EOF'
+cat >"${dir}/tests/smoke.sh" <<'EOF'
 #!/usr/bin/bash
 # Smoke test, run INSIDE the built image:
 #   podman run --rm -v ./tests/smoke.sh:/smoke.sh:ro <image> bash /smoke.sh

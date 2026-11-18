@@ -9,10 +9,16 @@ set -uo pipefail
 expected="kafka postgresql seaweedfs valkey"
 
 file="${1:-$(dirname "${BASH_SOURCE[0]}")/images.txt}"
-[[ -f "${file}" ]] || { echo "validate: ${file}: no such file" >&2; exit 1; }
+[[ -f "${file}" ]] || {
+    echo "validate: ${file}: no such file" >&2
+    exit 1
+}
 
 fail=0
-err() { echo "validate: ${file}:$1: $2" >&2; fail=1; }
+err() {
+    echo "validate: ${file}:$1: $2" >&2
+    fail=1
+}
 
 line_re='^([a-z]+) ([a-z0-9][a-z0-9.-]*(:[0-9]+)?(/[a-z0-9._-]+)+):([^@:[:space:]]+)@(sha256:[0-9a-f]{64})$'
 tag_re='^[0-9]+\.[0-9]+(\.[0-9]+)*(-[A-Za-z0-9._]+)?$'
@@ -39,7 +45,10 @@ while IFS= read -r line || [[ -n "${line}" ]]; do
 done <"${file}"
 
 for name in ${expected}; do
-    [[ -n "${seen[${name}]:-}" ]] || { echo "validate: ${file}: missing image '${name}'" >&2; fail=1; }
+    [[ -n "${seen[${name}]:-}" ]] || {
+        echo "validate: ${file}: missing image '${name}'" >&2
+        fail=1
+    }
 done
 
 if ((fail)); then exit 1; fi

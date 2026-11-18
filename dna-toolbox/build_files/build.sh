@@ -31,7 +31,7 @@ while IFS='|' read -r name version url sha file; do
         echo "build.sh: WARNING ${name} ${version} not installed (download or checksum failed)" >&2
     fi
     rm -rf "${tmp}"
-done < /ctx/downloads.lock
+done </ctx/downloads.lock
 
 # The server stack tooling (Quadlet and compose files, the dna-stack command): files only, nothing
 # runs at build time

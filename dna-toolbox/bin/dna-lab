@@ -10,7 +10,10 @@ VENV=${DNA_VENV:-${DATA}/venv-py${DNA_PYTHON_VERSION}}
 NOTEBOOKS=${DNA_NOTEBOOKS:-${HOME}/dna-notebooks}
 PORT=${DNA_LAB_PORT:-8888}
 
-[[ -x "${VENV}/bin/jupyter-lab" ]] || { echo "dna-lab: no environment yet; run dna-setup first" >&2; exit 1; }
+[[ -x "${VENV}/bin/jupyter-lab" ]] || {
+    echo "dna-lab: no environment yet; run dna-setup first" >&2
+    exit 1
+}
 mkdir -p "${NOTEBOOKS}"
 for nb in "${SHARE}"/notebooks/*.ipynb; do
     [[ -e "${NOTEBOOKS}/$(basename "${nb}")" ]] || cp "${nb}" "${NOTEBOOKS}/"

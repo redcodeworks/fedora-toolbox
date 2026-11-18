@@ -8,8 +8,14 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 src="${here}/.."
 pass=0
 failn=0
-ok() { pass=$((pass + 1)); echo "ok   $1"; }
-bad() { failn=$((failn + 1)); echo "FAIL $1"; }
+ok() {
+    pass=$((pass + 1))
+    echo "ok   $1"
+}
+bad() {
+    failn=$((failn + 1))
+    echo "FAIL $1"
+}
 tmp=$(mktemp -d)
 trap 'rm -rf "${tmp}"' EXIT
 val="${src}/datastore-images/validate.sh"
@@ -21,7 +27,10 @@ good="${src}/datastore-images/images.txt"
 d=$(printf 'a%.0s' {1..64})
 reject() { # description sed-expression expected-message-fragment
     sed -e "$2" "${good}" >"${tmp}/f.txt"
-    out=$("${val}" "${tmp}/f.txt" 2>&1) && { bad "$1 accepted"; return; }
+    out=$("${val}" "${tmp}/f.txt" 2>&1) && {
+        bad "$1 accepted"
+        return
+    }
     [[ "${out}" == *"$3"* ]] && ok "$1 rejected" || bad "$1 rejected with the wrong message: ${out}"
 }
 reject "missing digest" '/^kafka /s/@sha256:[0-9a-f]*$//' "not '<name>"
@@ -44,7 +53,12 @@ reject "leading space" '/^kafka /s/^/ /' "not '<name>"
 "${val}" "${tmp}/empty.txt" >/dev/null 2>&1 && bad "an empty file accepted" || ok "an empty file rejected"
 "${val}" "${tmp}/none.txt" >/dev/null 2>&1 && bad "a missing file accepted" || ok "a missing file rejected"
 # comments and blank lines are fine anywhere
-{ echo "# c"; echo; cat "${good}"; echo "   # indented comment"; } >"${tmp}/c.txt"
+{
+    echo "# c"
+    echo
+    cat "${good}"
+    echo "   # indented comment"
+} >"${tmp}/c.txt"
 "${val}" "${tmp}/c.txt" >/dev/null 2>&1 && ok "comments and blank lines accepted" || bad "comments and blank lines rejected"
 # every real line carries its major as a comment and a 64-hex digest
 [[ "$(grep -cE '^(postgresql|valkey|seaweedfs|kafka) .*@sha256:[0-9a-f]{64}$' "${good}")" == 4 ]] && ok "four pinned lines" || bad "not four pinned lines"

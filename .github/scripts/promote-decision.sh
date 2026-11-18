@@ -29,7 +29,10 @@ ref="${2:?ref}"
 dir="${3:?image dir}"
 name="${4:?image name}"
 
-build() { echo "build $*"; exit 0; }
+build() {
+    echo "build $*"
+    exit 0
+}
 
 registry_has_tag() { # name tag
     skopeo inspect --raw "docker://${IMAGE_REGISTRY:?IMAGE_REGISTRY}/${1,,}:$2" >/dev/null 2>&1
@@ -50,7 +53,7 @@ g() { git -C "${root}" "$@"; }
 [[ "${PROMOTE_ENABLED:-}" == "true" ]] || build "PROMOTE_ENABLED is not true"
 
 parents=$(g rev-list --parents -n1 HEAD | wc -w)
-(( parents == 3 )) || build "HEAD is not a merge commit"
+((parents == 3)) || build "HEAD is not a merge commit"
 
 while IFS= read -r f; do
     is_docs_only "${f}" || build "trees differ (${f} differs between main and the testing tip)"
