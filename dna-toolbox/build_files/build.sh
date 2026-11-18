@@ -1,13 +1,13 @@
 #!/usr/bin/bash
 # Install packages/required-fedora.txt (strict) and packages/optional-fedora.txt (best effort) into the image. Called from the Containerfile with the build
-# context mounted at /ctx and the installer of the pinned octarine-bins-dx image at /installer (only its install.sh is used, on this box's own lists).
+# context mounted at /ctx (the lists are installed by build_files/install-packages.sh).
 # Fails loudly on any unavailable required package.
 set -euo pipefail
 
 # Required: one strict dnf5 install (no --skip-unavailable, strict=1: a missing package or group aborts the build). Optional: one transaction, then
 # package by package; what is missing is printed as "OPTIONAL PACKAGE MISSING" and never fails the build, and smoke.sh never requires it.
-# This script does its own cleanup at the end (NO_CLEANUP=1).
-PACKAGES_DIR=/ctx/packages NO_CLEANUP=1 bash /installer/install.sh
+# This script does its own cleanup at the end.
+bash /ctx/build_files/install-packages.sh
 
 # Pinned versions, config files (conda-forge-only condarc, profile script, notebooks), the dna-*
 # commands. Files only; nothing runs at build time.
