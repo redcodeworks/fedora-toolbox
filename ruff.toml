@@ -1,0 +1,2 @@
+# Formatter only (no lint rules). The one Python file has lines up to 107 characters, so 120 does not rewrap it.
+line-length = 120

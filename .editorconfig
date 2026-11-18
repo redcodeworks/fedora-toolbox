@@ -1,0 +1,16 @@
+root = true
+
+# Read by shfmt. The extensionless scripts (bin/*, dna-venv) are shell too.
+[*.sh]
+indent_style = space
+indent_size = 4
+shell_variant = bash
+binary_next_line = true
+switch_case_indent = true
+
+[{**/bin/*,**/dna-venv,githooks/*}]
+indent_style = space
+indent_size = 4
+shell_variant = bash
+binary_next_line = true
+switch_case_indent = true
