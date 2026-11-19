@@ -4,19 +4,22 @@
 # Fails on the first missing piece.
 set -euo pipefail
 
-fail() { echo "SMOKE FAIL: $*" >&2; exit 1; }
+fail() {
+	echo "SMOKE FAIL: $*" >&2
+	exit 1
+}
 
 run() {
-    local out
-    out=$("$@" 2>&1) || fail "'$*' failed: $out"
-    echo "ok: $* -> $(head -n1 <<<"$out")"
+	local out
+	out=$("$@" 2>&1) || fail "'$*' failed: $out"
+	echo "ok: $* -> $(head -n1 <<<"$out")"
 }
 
 # TODO: one line per tool this toolbox must provide
 
 # A toolbox shares the user's home at runtime: the image must carry nothing user-specific
 if [ -d /home ] && [ -n "$(find /home -mindepth 1 -maxdepth 2 2>/dev/null | head -n1)" ]; then
-    fail "/home is not empty"
+	fail "/home is not empty"
 fi
 extra=$(awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' /etc/passwd | tr '\n' ' ')
 [ -z "$extra" ] || fail "image defines regular users: $extra"
@@ -51,8 +54,8 @@ run psql --version
 run jupyter-lab --version
 command -v kcat >/dev/null || fail "kcat missing"
 for t in dna-setup dna-lab dna-doctor dna-gpu; do
-    command -v "${t}" >/dev/null || fail "${t} missing"
-    bash -n "$(command -v "${t}")" || fail "${t} has a syntax error"
+	command -v "${t}" >/dev/null || fail "${t} missing"
+	bash -n "$(command -v "${t}")" || fail "${t} has a syntax error"
 done
 dna-doctor >/dev/null || fail "dna-doctor failed"
 dna-gpu help >/dev/null || fail "dna-gpu help failed"

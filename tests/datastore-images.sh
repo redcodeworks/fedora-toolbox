@@ -8,8 +8,14 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 src="${here}/.."
 pass=0
 failn=0
-ok() { pass=$((pass + 1)); echo "ok   $1"; }
-bad() { failn=$((failn + 1)); echo "FAIL $1"; }
+ok() {
+	pass=$((pass + 1))
+	echo "ok   $1"
+}
+bad() {
+	failn=$((failn + 1))
+	echo "FAIL $1"
+}
 tmp=$(mktemp -d)
 trap 'rm -rf "${tmp}"' EXIT
 val="${src}/datastore-images/validate.sh"
@@ -20,9 +26,12 @@ good="${src}/datastore-images/images.txt"
 # a bad file is the real one with one change (sed expression); the validator must fail and name the problem
 d=$(printf 'a%.0s' {1..64})
 reject() { # description sed-expression expected-message-fragment
-    sed -e "$2" "${good}" >"${tmp}/f.txt"
-    out=$("${val}" "${tmp}/f.txt" 2>&1) && { bad "$1 accepted"; return; }
-    [[ "${out}" == *"$3"* ]] && ok "$1 rejected" || bad "$1 rejected with the wrong message: ${out}"
+	sed -e "$2" "${good}" >"${tmp}/f.txt"
+	out=$("${val}" "${tmp}/f.txt" 2>&1) && {
+		bad "$1 accepted"
+		return
+	}
+	[[ "${out}" == *"$3"* ]] && ok "$1 rejected" || bad "$1 rejected with the wrong message: ${out}"
 }
 reject "missing digest" '/^kafka /s/@sha256:[0-9a-f]*$//' "not '<name>"
 reject "short digest" '/^kafka /s/@sha256:.*$/@sha256:abcdef/' "not '<name>"
@@ -44,7 +53,12 @@ reject "leading space" '/^kafka /s/^/ /' "not '<name>"
 "${val}" "${tmp}/empty.txt" >/dev/null 2>&1 && bad "an empty file accepted" || ok "an empty file rejected"
 "${val}" "${tmp}/none.txt" >/dev/null 2>&1 && bad "a missing file accepted" || ok "a missing file rejected"
 # comments and blank lines are fine anywhere
-{ echo "# c"; echo; cat "${good}"; echo "   # indented comment"; } >"${tmp}/c.txt"
+{
+	echo "# c"
+	echo
+	cat "${good}"
+	echo "   # indented comment"
+} >"${tmp}/c.txt"
 "${val}" "${tmp}/c.txt" >/dev/null 2>&1 && ok "comments and blank lines accepted" || bad "comments and blank lines rejected"
 # every real line carries its major as a comment and a 64-hex digest
 [[ "$(grep -cE '^(postgresql|valkey|seaweedfs|kafka) .*@sha256:[0-9a-f]{64}$' "${good}")" == 4 ]] && ok "four pinned lines" || bad "not four pinned lines"
@@ -55,7 +69,7 @@ images="${src}/.github/scripts/images.sh"
 sched=$(REPO_ROOT="${src}" "${src}/.github/scripts/plan-images.sh" schedule)
 [[ "${sched}" != *'"datastore-images"'* ]] && ok "the weekly schedule leaves it out" || bad "the weekly schedule rebuilds it"
 while IFS=: read -r s dst; do
-    [[ -f "${src}/${s}" && -n "${dst}" ]] || bad "DATA_FILES entry ${s}:${dst} is not a file"
+	[[ -f "${src}/${s}" && -n "${dst}" ]] || bad "DATA_FILES entry ${s}:${dst} is not a file"
 done < <(REPO_ROOT="${src}" "${images}" data-files datastore-images)
 # DATA_FILES covers images.txt, the README and every file of bin/, lib/ and quadlets/ (directory entries expand to their files)
 want=$(cd "${src}/datastore-images" && ls images.txt bin/* lib/* quadlets/* | sed 's|.*|datastore-images/&:&|' | LC_ALL=C sort)
@@ -72,15 +86,15 @@ g add -A
 g commit -q -m base
 last=$(g rev-parse HEAD)
 names() { # <expected, sorted> <description> <path to touch>
-    local want=$1 d=$2 f=$3 new out got
-    echo "# $RANDOM" >>"${repo}/${f}"
-    g add -A
-    g commit -q -m "touch ${f}"
-    new=$(g rev-parse HEAD)
-    out=$(REPO_ROOT="${repo}" "${repo}/.github/scripts/plan-images.sh" push "${last}" "${new}" 2>/dev/null)
-    got=$(python3 -I -c 'import json,sys; print(" ".join(sorted(e["image"] for e in json.loads(sys.argv[1])["include"])) or "-")' "${out}")
-    last=${new}
-    [[ "${got}" == "${want}" ]] && ok "${d}" || bad "${d} (want '${want}', got '${got}')"
+	local want=$1 d=$2 f=$3 new out got
+	echo "# $RANDOM" >>"${repo}/${f}"
+	g add -A
+	g commit -q -m "touch ${f}"
+	new=$(g rev-parse HEAD)
+	out=$(REPO_ROOT="${repo}" "${repo}/.github/scripts/plan-images.sh" push "${last}" "${new}" 2>/dev/null)
+	got=$(python3 -I -c 'import json,sys; print(" ".join(sorted(e["image"] for e in json.loads(sys.argv[1])["include"])) or "-")' "${out}")
+	last=${new}
+	[[ "${got}" == "${want}" ]] && ok "${d}" || bad "${d} (want '${want}', got '${got}')"
 }
 names "datastore-images" "a change to images.txt builds datastore-images only" datastore-images/images.txt
 names "datastore-images" "a change to the validator builds datastore-images only" datastore-images/validate.sh

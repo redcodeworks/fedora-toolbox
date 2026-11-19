@@ -4,20 +4,23 @@
 # Fails on the first missing piece.
 set -euo pipefail
 
-fail() { echo "SMOKE FAIL: $*" >&2; exit 1; }
+fail() {
+	echo "SMOKE FAIL: $*" >&2
+	exit 1
+}
 
 run() {
-    local out
-    out=$("$@" 2>&1) || fail "'$*' failed: $out"
-    echo "ok: $* -> $(head -n1 <<<"$out")"
+	local out
+	out=$("$@" 2>&1) || fail "'$*' failed: $out"
+	echo "ok: $* -> $(head -n1 <<<"$out")"
 }
 
 # build residue must not ship (checked first: running the tools below may create /root/.cache)
 for f in /var/log/dnf5.log* /var/log/dnf.log*; do
-    [ ! -e "$f" ] || fail "build log shipped in the image: $f"
+	[ ! -e "$f" ] || fail "build log shipped in the image: $f"
 done
 for f in /root/.ssh /root/.viminfo /root/.cache /root/.local/share/wget; do
-    [ ! -e "$f" ] || fail "residue in the image: $f"
+	[ ! -e "$f" ] || fail "residue in the image: $f"
 done
 echo "ok: no dnf logs or root residue (.ssh, .viminfo, .cache, wget) in the image"
 
@@ -42,7 +45,7 @@ echo "ok: libvulkan_radeon for both architectures"
 
 # a toolbox shares the user's home at runtime: the image must carry nothing user-specific
 if [ -d /home ] && [ -n "$(find /home -mindepth 1 -maxdepth 2 2>/dev/null | head -n1)" ]; then
-    fail "/home is not empty: $(find /home -mindepth 1 -maxdepth 2 | head -n5 | tr '\n' ' ')"
+	fail "/home is not empty: $(find /home -mindepth 1 -maxdepth 2 | head -n5 | tr '\n' ' ')"
 fi
 extra=$(awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' /etc/passwd | tr '\n' ' ')
 [ -z "$extra" ] || fail "image defines regular users: $extra"

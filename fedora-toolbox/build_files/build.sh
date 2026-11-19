@@ -15,4 +15,4 @@ dnf5 clean all
 # Build residue that must not ship: dnf logs (they contain mirror URLs), root's ssh, vim, wget and
 # cache leftovers, and the dnf caches
 rm -rf /var/cache/libdnf5 /var/cache/dnf /var/log/dnf5.log* /var/log/dnf.log* \
-    /root/.ssh /root/.viminfo /root/.cache /root/.local/share/wget /root/.wget-hsts 2>/dev/null || true
+	/root/.ssh /root/.viminfo /root/.cache /root/.local/share/wget /root/.wget-hsts 2>/dev/null || true
